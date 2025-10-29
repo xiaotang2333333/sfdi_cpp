@@ -1,0 +1,8 @@
+{
+  "dependencies": [
+    "openblas",
+    "nlopt",
+    "opencv",
+    "eigen3"
+  ]
+}

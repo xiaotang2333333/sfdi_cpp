@@ -1,0 +1,28 @@
+{
+    "version": 8,
+    "configurePresets": [
+        {
+            "name": "vcpkg",
+            "displayName": "使用工具链文件配置预设",
+            "description": "设置 Ninja 生成器、版本和安装目录，同时启用 vcpkg（需要设置 VCPKG_ROOT 环境变量）",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE":"Release",
+                "CMAKE_TOOLCHAIN_FILE": "${env.VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+            }
+        },
+        {
+            "name": "rkarm",
+            "displayName": "arm64 工具链配置预设",
+            "description": "设置 Ninja 生成器、版本和安装目录",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/x64-arm64-toolchain.cmake",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}"
+            }
+        }
+    ]
+}
