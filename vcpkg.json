@@ -2,7 +2,11 @@
   "dependencies": [
     "openblas",
     "nlopt",
-    "opencv",
-    "eigen3"
+    "eigen3",
+    {
+      "name": "opencv4",
+      "default-features": false,
+      "features": ["tiff", "eigen", "fs"]
+    }
   ]
 }
