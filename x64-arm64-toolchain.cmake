@@ -17,12 +17,8 @@ set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a")
 
-# VCPKG configuration for cross-compilation
-if(DEFINED ENV{VCPKG_ROOT})
-    set(VCPKG_TARGET_TRIPLET arm64-linux-dynamic)
-    set(VCPKG_HOST_TRIPLET x64-linux)
-    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
-endif()
+set(VCPKG_TARGET_TRIPLET arm64-linux-dynamic)
+set(VCPKG_HOST_TRIPLET x64-linux)
 
 # Set the build type to Release for cross-compilation
 if(NOT CMAKE_BUILD_TYPE)
