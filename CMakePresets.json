@@ -9,7 +9,7 @@
             "binaryDir": "${sourceDir}/out/build/${presetName}",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE":"Release",
-                "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/x64-toolchain.cmake",
+                "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/x64-mingw-toolchain.cmake",
                 "CMAKE_TOOLCHAIN_FILE": "${env.VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
             }
         },
