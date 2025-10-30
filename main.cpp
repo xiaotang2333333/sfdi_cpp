@@ -195,8 +195,8 @@ static std::vector<double> run_nlopt(ImageInfo *data)
 int main(void)
 {
     int_time.setConstant(1.0f);
-    std::string ref_folder = "C:/Users/65717/Desktop/final/sfdi_cpp/reference_670";
-    std::string sample_folder = "C:/Users/65717/Desktop/final/sfdi_cpp/sample_670";
+    std::string ref_folder = "reference_670";
+    std::string sample_folder = "sample_670";
     Tiff_img imgref_0hz_0phase = open_tiff(ref_folder + "/im01.tif"),
              imgref_0hz_120phase = open_tiff(ref_folder + "/im02.tif"),
              imgref_0hz_240phase = open_tiff(ref_folder + "/im03.tif"),
@@ -258,6 +258,9 @@ int main(void)
     calibrated_reflectance.device(Eigen::DefaultDevice()) =
         sample_ac_data / ref_ac_data * ref_model_expr;
 
+    // 开始计时
+    auto start_time = std::chrono::high_resolution_clock::now();
+
 #pragma omp parallel for collapse(2)
     for (int nowheight = 0; nowheight < IMG_HEIGHT; ++nowheight)
     {
@@ -278,7 +281,12 @@ int main(void)
         }
     }
 
-    std::ofstream file("C:/Users/65717/Desktop/final/alg/sfdi_mua.bin", std::ios::binary);
+    // 结束计时并输出运行时间
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time);
+    std::cout << "并行循环执行时间: " << duration.count() << "秒" << std::endl;
+
+    std::ofstream file("sfdi_mua.bin", std::ios::binary);
     if (!file)
     {
         std::cerr << "无法打开文件！\n";
