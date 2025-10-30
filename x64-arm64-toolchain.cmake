@@ -31,6 +31,3 @@ endif()
 
 # Disable some tests that may not work in cross-compilation
 set(CMAKE_CROSSCOMPILING ON)
-if(DEFINED ENV{VCPKG_ROOT})
-    include("$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
-endif()
