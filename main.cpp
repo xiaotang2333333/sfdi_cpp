@@ -72,24 +72,24 @@ static void Compute_AC(const SFDI_data &input, const Int_time &int_time, SFDI_AC
 {
     // 预计算常量，避免重复计算
     const double sqrt_2_over_3 = std::sqrt(2.0) / 3.0;
-    
+
     // 优化内存访问模式
     Eigen::array<Eigen::Index, 4> reshape_dims = {1, 1, WAVELENGTH_NUM, 1};
     Eigen::array<Eigen::Index, 4> broadcast_dims = {IMG_HEIGHT, IMG_WIDTH, 1, FREQ_NUM};
     auto int_time_bcast = int_time.reshape(reshape_dims).broadcast(broadcast_dims);
-    
+
     // 优化：减少中间计算步骤
     auto img_0 = input.chip(0, 3);
     auto img_120 = input.chip(1, 3);
     auto img_240 = input.chip(2, 3);
-    
+
     // 直接计算最终结果，避免不必要的临时对象
     auto numerator = (img_0 - img_120).square() +
-                      (img_0 - img_240).square() +
-                      (img_120 - img_240).square();
-    
+                     (img_0 - img_240).square() +
+                     (img_120 - img_240).square();
+
     output.device(Eigen::DefaultDevice()) =
-    (numerator.sqrt() * sqrt_2_over_3 / int_time_bcast);
+        (numerator.sqrt() * sqrt_2_over_3 / int_time_bcast);
 }
 /// @brief SFDI模型 mua musp n 与波长数量有关
 /// @param mua 1维向量表示每个波长吸收系数
@@ -142,7 +142,7 @@ static std::vector<double> run_nlopt(ImageInfo *data)
 {
     const int dim = 2 * WAVELENGTH_NUM; // 参数维度：mua + musp
     std::vector<double> result_params(dim);
-    
+
     // 优化：使用更高效的优化算法
     // LN_BOBYQA 通常比 LN_NELDERMEAD 收敛更快
     nlopt::opt opt(nlopt::LN_BOBYQA, dim);
@@ -163,10 +163,10 @@ static std::vector<double> run_nlopt(ImageInfo *data)
     opt.set_min_objective(objective, data);
 
     // 优化：调整终止条件，提高收敛速度
-    opt.set_xtol_rel(1e-4);  // 放宽参数容忍度
-    opt.set_ftol_rel(1e-6);  // 保持函数值容忍度
-    opt.set_maxeval(500); // 减少最大迭代次数
-    opt.set_maxtime(30.0); // 增加时间限制
+    opt.set_xtol_rel(1e-4); // 放宽参数容忍度
+    opt.set_ftol_rel(1e-6); // 保持函数值容忍度
+    opt.set_maxeval(500);   // 减少最大迭代次数
+    opt.set_maxtime(30.0);  // 增加时间限制
 
     // 5. 初始值 - 优化初始猜测
     std::vector<double> x0(dim);
@@ -182,8 +182,8 @@ static std::vector<double> run_nlopt(ImageInfo *data)
     {
         nlopt::result result = opt.optimize(x0, minf);
         for (int i = 0; i < dim; ++i)
-    {
-        result_params[i] = x0[i];
+        {
+            result_params[i] = x0[i];
         }
     }
     catch (std::exception &e)
