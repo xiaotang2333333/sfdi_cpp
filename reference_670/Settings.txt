@@ -1,8 +1,0 @@
-
-
-Image size: 672 x 512
-Wavelength: 670nm
-
-Optical properties:
-Absorption: 0.0059 mm^-1
-Reduced scattering: 0.9748 mm^-1

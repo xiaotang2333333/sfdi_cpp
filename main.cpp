@@ -8,16 +8,20 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/core/eigen.hpp>
 #include <unsupported/Eigen/CXX11/Tensor>
+#include <unsupported/Eigen/SpecialFunctions>
 #define IMG_HEIGHT 512
 #define IMG_WIDTH 672
 #define WAVELENGTH_NUM 1
 #define PHASE_NUM 3
 #define FREQ_NUM 2
+#define TIME_BIN 1001
+#define RHO_BIN 1001
 typedef struct
 {
     int nowheight;
     int nowwidth;
 } ImageInfo;
+using R_of_rho_time = Eigen::Array<double,TIME_BIN,RHO_BIN>;
 using Tiff_img = Eigen::Tensor<double, 3, Eigen::RowMajor>;
 using SFDI_data = Eigen::TensorFixedSize<
     double,
@@ -41,6 +45,7 @@ using SFDI_Model = Eigen::Array<double, WAVELENGTH_NUM, FREQ_NUM>; // 固定大�
 static SFDI_data ref_data, sample_data;
 static SFDI_AC ref_ac_data, sample_ac_data, calibrated_reflectance;
 static Int_time int_time;
+static R_of_rho_time  R_of_rho_time_mc; 
 static Optical_prop ref_mua = (Optical_prop() << 0.0059).finished(),
                     ref_musp = (Optical_prop() << 0.9748).finished(),
                     ref_n = (Optical_prop() << 1.37).finished(),
@@ -202,8 +207,7 @@ int main(void)
              imgref_0hz_240phase = open_tiff(ref_folder + "/im03.tif"),
              imgref_02hz_0phase = open_tiff(ref_folder + "/im04.tif"),
              imgref_02hz_120phase = open_tiff(ref_folder + "/im05.tif"),
-             imgref_02hz_240phase = open_tiff(ref_folder + "/im06.tif"); //(H,W,C)
-
+             imgref_02hz_240phase = open_tiff(ref_folder + "/im06.tif"); //(H,W,C) 
     // auto toTensor = [&](const Eigen::MatrixXd &mat)
     // { return Eigen::TensorMap<const Eigen::Tensor<double, 2>>(mat.data(), H, W); };
     Eigen::array<Eigen::Index, 5> extents = {
@@ -286,15 +290,24 @@ int main(void)
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time);
     std::cout << "并行循环执行时间: " << duration.count() << "秒" << std::endl;
 
-    std::ofstream file("sfdi_mua.bin", std::ios::binary);
-    if (!file)
+    std::ofstream mua_file("sfdi_mua.bin", std::ios::binary);
+    if (!mua_file)
+    {
+        std::cerr << "无法打开文件！\n";
+        return 1;
+    }
+    std::ofstream musp_file("sfdi_musp.bin", std::ios::binary);
+    if (!musp_file)
     {
         std::cerr << "无法打开文件！\n";
         return 1;
     }
     // 写入原始内存数据
-    file.write(reinterpret_cast<const char *>(mua_map.data()),
+    mua_file.write(reinterpret_cast<const char *>(mua_map.data()),
                sizeof(double) * mua_map.size());
-    file.close();
+    mua_file.close();
+    musp_file.write(reinterpret_cast<const char *>(musp_map.data()),
+               sizeof(double) * musp_map.size());
+    musp_file.close();
     return 0;
 }
