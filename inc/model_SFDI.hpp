@@ -7,7 +7,6 @@
 #include <opencv2/core/eigen.hpp>
 #include <unsupported/Eigen/CXX11/Tensor>
 #include <unsupported/Eigen/SpecialFunctions>
-
 namespace SFDI
 {
     constexpr int IMG_HEIGHT = 512,
@@ -46,7 +45,7 @@ namespace SFDI
         std::unique_ptr<SFDI_data> ref_data, sample_data;
         Optical_prop last_n, F_ratio_times_delta_t, v;
         Freq frequency;
-        Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic> v_t, term_same, term_noj;
+        Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic> v_t, term_same;
         std::unique_ptr<Eigen::TensorMap<Eigen::Tensor<double, 3, Eigen::RowMajor>>> term_same_tensor_ptr, frequency_tensor_ptr, term_noj_tensor_ptr;
         std::unique_ptr<Eigen::TensorFixedSize<
             double,
@@ -59,7 +58,9 @@ namespace SFDI
             const std::string &R_of_rho_time_mc_path = "R_of_rho_time_mc_670.bin");
         ~model_SFDI() = default;
         SFDI_Model diff_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, const Optical_prop n, const Freq frequency);
-        SFDI_Model mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, const Optical_prop n, const Freq frequency);
+        SFDI_Model mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp);
+        void setFrequency(const Freq &freq);
+        void setN(const Optical_prop &n);
     };
 }
 

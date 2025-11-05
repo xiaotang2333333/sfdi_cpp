@@ -13,15 +13,15 @@ find_package(NLopt CONFIG REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 CONFIG REQUIRED)
 find_package(OpenBLAS CONFIG REQUIRED)
-
+find_package(OpenMP REQUIRED)
 target_include_directories(sfdi PRIVATE
     ${OpenCV_INCLUDE_DIRS}
     ${CMAKE_CURRENT_SOURCE_DIR}/inc
 )
 
 
-target_link_libraries(sfdi PRIVATE NLopt::nlopt Eigen3::Eigen ${OpenCV_LIBS} OpenBLAS::OpenBLAS)
-target_compile_options(sfdi PRIVATE -O3 -ffast-math -funroll-loops -flto -fopenmp-simd)
+target_link_libraries(sfdi PRIVATE NLopt::nlopt Eigen3::Eigen ${OpenCV_LIBS} OpenBLAS::OpenBLAS OpenMP::OpenMP_CXX)
+target_compile_options(sfdi PRIVATE -O3 -ffast-math -funroll-loops -flto )
 target_link_libraries(sfdi PRIVATE -fopenmp -flto)
 
 include(CPack)
