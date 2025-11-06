@@ -127,7 +127,7 @@ SFDI::SFDI_Model SFDI::model_SFDI::mc_model_for_SFDI(const Optical_prop mua, con
         musp_inv.data(), SFDI::WAVELENGTH_NUM, 1, 1);
     // 计算时间域衰减并转换到空间域 R_rho
     auto decay = (-(v_t.colwise() * (mua * musp_inv))).exp();                                                    // (W, T)
-    auto R_rho = (decay.matrix() * R_of_rho_time_mc.matrix()).array() * (F_ratio_times_delta_t * musp.square()); // (W, R)
+    auto R_rho = (decay.matrix() * R_of_rho_time_mc.matrix()).array() * ((F_ratio_times_delta_t * musp.square()).replicate(1, RHO_BIN)); // (W, R)
     // term_same: rho * 2*PI / musp，形状 (W, R)
     auto term_same_scale = term_same * musp_inv.replicate(1, SFDI::RHO_BIN);
 
@@ -181,7 +181,8 @@ void SFDI::model_SFDI::setIntTime(const Int_time &int_time)
 }
 void SFDI::model_SFDI::LoadAndComputeAC(const std::string &folder, SFDI_AC &output_ac)
 {
-    if(folder.empty()) {
+    if (folder.empty())
+    {
         throw std::runtime_error("Error: Reference folder path is empty.");
     }
     std::unique_ptr<SFDI_data> inputdata_ptr = std::make_unique<SFDI_data>();
