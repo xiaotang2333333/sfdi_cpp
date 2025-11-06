@@ -1,56 +1,86 @@
 #define EIGEN_USE_BLAS
 #define EIGEN_USE_LAPACK
 #include "model_SFDI.hpp"
+#include "lookup.hpp"
 #include <fstream>
 #include <omp.h>
-typedef struct
-{
-    double mua;             // 吸收系数
-    double musp;            // 约化散射系数
-    SFDI::SFDI_Model model; // 计算结果 (WAVELENGTH_NUM × FREQ_NUM)
-} SFDI_Result;
+#include <chrono>
+#include <iostream>
+
+static SFDI::SFDI_AC output_AC, calibrated_reflectance;
+static SFDI::Optical_prop_map mua_map, musp_map;
+
 int main(void)
 {
+    std::cout << "Starting SFDI parameter lookup using KD-Tree..." << std::endl;
 #pragma omp parallel
     {
 #pragma omp single
         std::cout << "Threads = " << omp_get_num_threads() << std::endl;
     }
-    constexpr int N_MUA = 1000;  // mua取100个点
-    constexpr int N_MUSP = 1000; // musp取100个点
-    constexpr int N_TOTAL = N_MUA * N_MUSP;
 
-    std::vector<SFDI_Result> results(N_TOTAL);
-    Eigen::ArrayXd mua_values = Eigen::ArrayXd::LinSpaced(N_MUA, 1e-5, 0.3);
-    Eigen::ArrayXd musp_values = Eigen::ArrayXd::LinSpaced(N_MUSP, 0.5, 1.5);
-    SFDI::model_SFDI comp("reference_670", "sample_670", "ROfRhoAndTime");
-    comp.setN(SFDI::Optical_prop().setConstant(1.37));
-    SFDI::Freq freq;
-    freq << 0, 0.2;
-    comp.setFrequency(freq);
-#pragma omp parallel for
-    for (int idx = 0; idx < N_TOTAL; ++idx)
+    // 1. 初始化模型和查找表
+    std::cout << "Loading model and building lookup table..." << std::endl;
+    SFDI::model_SFDI model_comp("reference_670", "ROfRhoAndTime");
+    SFDI::SFDI_Lookup lookup(800, 800);
+
+    //     // 2. 计算校准后的反射率
+    std::cout << "Computing calibrated reflectance..." << std::endl;
+    model_comp.LoadAndComputeAC("sample_670", output_AC);
+    model_comp.R_compute(output_AC, calibrated_reflectance);
+    auto start_time = std::chrono::high_resolution_clock::now();
+    std::cout << "Starting lookup for all pixels..." << std::endl;
+
+    // 3. 对每个像素点查找 (mua, musp)
+#pragma omp parallel for collapse(2)
+    for (int h = 0; h < SFDI::IMG_HEIGHT; h++)
     {
-        int i = idx / N_MUSP; // mua 索引
-        int j = idx % N_MUSP; // musp 索引
-        results[idx].mua = mua_values[i];
-        results[idx].musp = musp_values[j];
-        SFDI::Optical_prop mua_prop;
-        SFDI::Optical_prop musp_prop;
-        mua_prop.setConstant(mua_values[i]);
-        musp_prop.setConstant(musp_values[j]);
-        results[idx].model = comp.mc_model_for_SFDI(
-            mua_prop,
-            musp_prop);
+        for (int w = 0; w < SFDI::IMG_WIDTH; w++)
+        {
+            // 获取该像素的测量反射率
+            SFDI::SFDI_Model measured = SFDI::AC2Model(calibrated_reflectance, h, w);
+
+            // 查找最近的 (mua, musp)
+            auto [mua, musp] = lookup.query(measured);
+
+            // 保存结果
+            for (int c = 0; c < SFDI::WAVELENGTH_NUM; ++c)
+            {
+                mua_map(h, w, c) = mua(c);
+                musp_map(h, w, c) = musp(c);
+            }
+        }
     }
-    std::ofstream ofs("sfdi_results.bin", std::ios::binary);
-    for (const auto &r : results)
+
+    // 4. 结束计时
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    std::cout << "Lookup completed in " << duration.count() << " ms" << std::endl;
+
+    // 5. 保存 mua 到二进制文件
+    std::ofstream mua_file("sfdi_mua.bin", std::ios::binary);
+    if (!mua_file)
     {
-        ofs.write(reinterpret_cast<const char *>(&r.mua), sizeof(double));
-        ofs.write(reinterpret_cast<const char *>(&r.musp), sizeof(double));
-        ofs.write(reinterpret_cast<const char *>(r.model.data()),
-                  sizeof(double) * r.model.size());
+        std::cerr << "Failed to open mua file for writing!" << std::endl;
+        return 1;
     }
-    ofs.close();
+    mua_file.write(reinterpret_cast<const char *>(mua_map.data()),
+                   sizeof(double) * mua_map.size());
+    mua_file.close();
+    std::cout << "mua saved to sfdi_mua.bin" << std::endl;
+
+    // 6. 保存 musp 到二进制文件
+    std::ofstream musp_file("sfdi_musp.bin", std::ios::binary);
+    if (!musp_file)
+    {
+        std::cerr << "Failed to open musp file for writing!" << std::endl;
+        return 1;
+    }
+    musp_file.write(reinterpret_cast<const char *>(musp_map.data()),
+                    sizeof(double) * musp_map.size());
+    musp_file.close();
+    std::cout << "musp saved to sfdi_musp.bin" << std::endl;
+
+    std::cout << "All done!" << std::endl;
     return 0;
 }

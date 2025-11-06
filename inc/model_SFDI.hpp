@@ -1,5 +1,5 @@
-#ifndef MODEL_SFDI
-#define MODEL_SFDI
+#ifndef MODEL_SFDI_HPP
+#define MODEL_SFDI_HPP
 #include <string>
 #include <stdexcept>
 #include <Eigen/Dense>
@@ -18,11 +18,11 @@ namespace SFDI
     using Tiff_img = Eigen::Tensor<double, 3, Eigen::RowMajor>;
     using SFDI_data = Eigen::TensorFixedSize<
         double,
-        Eigen::Sizes<IMG_HEIGHT, IMG_WIDTH, WAVELENGTH_NUM, 3, 2>,
+        Eigen::Sizes<IMG_HEIGHT, IMG_WIDTH, WAVELENGTH_NUM, 3, FREQ_NUM>,
         Eigen::RowMajor>; // (H,W,C,P,F)
     using SFDI_AC = Eigen::TensorFixedSize<
         double,
-        Eigen::Sizes<IMG_HEIGHT, IMG_WIDTH, WAVELENGTH_NUM, 2>,
+        Eigen::Sizes<IMG_HEIGHT, IMG_WIDTH, WAVELENGTH_NUM, FREQ_NUM>,
         Eigen::RowMajor>; // (H,W,C,F) AC分量计算结果
     using Int_time = Eigen::TensorFixedSize<
         double,
@@ -42,25 +42,30 @@ namespace SFDI
     class model_SFDI
     {
     private:
-        std::unique_ptr<SFDI_data> ref_data, sample_data;
-        Optical_prop last_n, F_ratio_times_delta_t, v;
+        std::unique_ptr<SFDI_AC> ref_AC_ptr;
+        std::unique_ptr<SFDI_Model> ref_R_ptr; // (W,F,R)
+        Optical_prop n, F_ratio_times_delta_t, v;
         Freq frequency;
         Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic> v_t, term_same;
         std::unique_ptr<Eigen::TensorMap<Eigen::Tensor<double, 3, Eigen::RowMajor>>> term_same_tensor_ptr, frequency_tensor_ptr, term_noj_tensor_ptr;
         std::unique_ptr<Eigen::TensorFixedSize<
             double,
             Eigen::Sizes<WAVELENGTH_NUM, FREQ_NUM, RHO_BIN>,
-            Eigen::RowMajor>> Jterm_ptr; // (W,F,R)
+            Eigen::RowMajor>>
+            Jterm_ptr; // (W,F,R)
+        std::unique_ptr<Int_time> int_time_ptr;
     public:
         model_SFDI(
             const std::string &ref_folder = "reference_670",
-            const std::string &sample_folder = "sample_670",
-            const std::string &R_of_rho_time_mc_path = "R_of_rho_time_mc_670.bin");
+            const std::string &R_of_rho_time_mc_path = "ROfRhoAndTime");
         ~model_SFDI() = default;
-        SFDI_Model diff_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, const Optical_prop n, const Freq frequency);
+        SFDI_Model diff_model_for_SFDI(const Optical_prop mua, const Optical_prop musp);
         SFDI_Model mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp);
+        void LoadAndComputeAC(const std::string &folder, SFDI_AC &output_ac);
+        void R_compute(const SFDI_AC &input_ac, SFDI_AC &output_R);
         void setFrequency(const Freq &freq);
         void setN(const Optical_prop &n);
+        void setIntTime(const Int_time &int_time);
     };
 }
 
