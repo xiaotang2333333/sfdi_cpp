@@ -12,7 +12,7 @@ namespace SFDI
     constexpr int IMG_HEIGHT = 512,
                   IMG_WIDTH = 672,
                   WAVELENGTH_NUM = 1,
-                  TIME_BIN = 20000,
+                  TIME_BIN = 10000,
                   RHO_BIN = 1000,
                   FREQ_NUM = 2;
     using Tiff_img = Eigen::Tensor<double, 3, Eigen::RowMajor>;
@@ -46,7 +46,7 @@ namespace SFDI
         std::unique_ptr<SFDI_Model> ref_R_ptr; // (W,F,R)
         Optical_prop n, F_ratio_times_delta_t, v;
         Freq frequency;
-        Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic> v_t, term_same;
+        Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic> v_t, term_same;//(W,R)
         std::unique_ptr<Eigen::TensorMap<Eigen::Tensor<double, 3, Eigen::RowMajor>>> term_same_tensor_ptr, frequency_tensor_ptr, term_noj_tensor_ptr;
         std::unique_ptr<Eigen::TensorFixedSize<
             double,
@@ -60,12 +60,13 @@ namespace SFDI
             const std::string &R_of_rho_time_mc_path = "ROfRhoAndTime");
         ~model_SFDI() = default;
         SFDI_Model diff_model_for_SFDI(const Optical_prop mua, const Optical_prop musp);
-        SFDI_Model mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp);
+        void mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, SFDI_Model &dst);
         void LoadAndComputeAC(const std::string &folder, SFDI_AC &output_ac);
         void R_compute(const SFDI_AC &input_ac, SFDI_AC &output_R);
         void setFrequency(const Freq &freq);
         void setN(const Optical_prop &n);
         void setIntTime(const Int_time &int_time);
+        void FreqTest(double start, double end, int num_points);
     };
 }
 

@@ -45,9 +45,10 @@ namespace
                 mua_prop.setConstant(mua_values[i]);
                 musp_prop.setConstant(musp_values[j]);
 
-                results[idx].model = comp.mc_model_for_SFDI(
+                comp.mc_model_for_SFDI(
                     mua_prop,
-                    musp_prop);
+                    musp_prop,
+                    results[idx].model);
             }
             std::cout << "Computation completed, saving to file..." << std::endl;
             std::ofstream ofs(path, std::ios::binary);
@@ -60,12 +61,12 @@ namespace
             }
             ofs.close();
         }
-        
+
         // 关闭之前的流并重新打开为二进制模式
         fin.close();
         fin.clear(); // 清除错误标志
         fin.open(path, std::ios::binary);
-        
+
         // 读取数据并还原到 results_table
         if (!fin.is_open())
         {
@@ -75,28 +76,28 @@ namespace
         // 计算文件中的记录数
         fin.seekg(0, std::ios::end);
         std::streamsize file_size = fin.tellg();
-        
+
         // 检查 tellg() 是否失败
         if (file_size == -1)
         {
             throw std::runtime_error("Failed to determine file size for: " + path);
         }
-        
+
         if (file_size == 0)
         {
             throw std::runtime_error("Lookup table file is empty: " + path);
         }
-        
+
         fin.seekg(0, std::ios::beg);
 
         // 每条记录的大小: mua + musp + model
         const std::size_t record_size = sizeof(double) * (SFDI::WAVELENGTH_NUM + SFDI::WAVELENGTH_NUM + SFDI::WAVELENGTH_NUM * SFDI::FREQ_NUM);
         const std::size_t num_records = static_cast<std::size_t>(file_size) / record_size;
-        
+
         std::cout << "File size: " << file_size << " bytes" << std::endl;
         std::cout << "Record size: " << record_size << " bytes" << std::endl;
         std::cout << "Loading " << num_records << " records from lookup table..." << std::endl;
-        
+
         if (static_cast<std::size_t>(file_size) % record_size != 0)
         {
             throw std::runtime_error("Lookup table file size mismatch");
