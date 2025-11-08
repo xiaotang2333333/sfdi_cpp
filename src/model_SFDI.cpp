@@ -19,10 +19,9 @@ namespace
                  sizeof(double) * (SFDI::TIME_BIN) * (SFDI::RHO_BIN));
         fin.close();
     }
-    constexpr double delta_t = 0.1, delta_rho = 0.1;
-    constexpr double mc_n = 1 - (1.4 - 1) / (1.4 + 1) * (1.4 - 1) / (1.4 + 1);
-    static const Eigen::Array<double, SFDI::TIME_BIN, 1> time_var = Eigen::Array<double, SFDI::TIME_BIN, 1>::LinSpaced(0.05, 99.95);
-    static const Eigen::Array<double, SFDI::RHO_BIN, 1> rho_var = Eigen::Array<double, SFDI::RHO_BIN, 1>::LinSpaced(0.05, 99.95);
+    constexpr double delta_t = 0.005, delta_rho = 0.1;
+    static const Eigen::ArrayXd time_var = Eigen::ArrayXd::LinSpaced(SFDI::TIME_BIN, delta_t / 2, delta_t * SFDI::TIME_BIN - delta_t / 2);
+    static const Eigen::ArrayXd rho_var = Eigen::ArrayXd::LinSpaced(SFDI::RHO_BIN, delta_rho / 2, delta_rho * SFDI::RHO_BIN - delta_rho / 2);
     static Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> Rho_tensor_map(
         rho_var.data(), 1, 1, SFDI::RHO_BIN);
 }
@@ -171,7 +170,8 @@ void SFDI::model_SFDI::setN(const Optical_prop &input_n)
         v = light_speed / input_n; // 光速除以折射率
         n = input_n;
         auto F = 1 - ((1 - input_n) / (1 + input_n)).square();
-        F_ratio_times_delta_t = (F / mc_n * delta_t).eval();
+        F_ratio_times_delta_t = (delta_t / F).eval();
+        std::cout << F << std::endl;
         v_t = v.matrix() * time_var.transpose().matrix(); // (W,T) 预计算 v*t
     }
 }

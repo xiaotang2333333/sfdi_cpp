@@ -12,7 +12,7 @@ namespace SFDI
     constexpr int IMG_HEIGHT = 512,
                   IMG_WIDTH = 672,
                   WAVELENGTH_NUM = 1,
-                  TIME_BIN = 1000,
+                  TIME_BIN = 20000,
                   RHO_BIN = 1000,
                   FREQ_NUM = 2;
     using Tiff_img = Eigen::Tensor<double, 3, Eigen::RowMajor>;
