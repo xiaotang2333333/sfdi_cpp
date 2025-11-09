@@ -21,10 +21,9 @@ int main(void)
 
     // 1. 初始化模型和查找表
     std::cout << "Loading model and building lookup table..." << std::endl;
+    SFDI::SFDI_Lookup lookup(500, 500);
     SFDI::model_SFDI model_comp("reference_670", "ROfRhoAndTime");
-    SFDI::SFDI_Lookup lookup(800, 800);
-
-    //     // 2. 计算校准后的反射率
+        // 2. 计算校准后的反射率
     std::cout << "Computing calibrated reflectance..." << std::endl;
     model_comp.LoadAndComputeAC("sample_670", output_AC);
     model_comp.R_compute(output_AC, calibrated_reflectance);
@@ -38,7 +37,7 @@ int main(void)
         for (int w = 0; w < SFDI::IMG_WIDTH; w++)
         {
             // 获取该像素的测量反射率
-            SFDI::SFDI_Model measured = SFDI::AC2Model(calibrated_reflectance, h, w);
+            SFDI::Reflect_wave_freq measured = SFDI::AC2Model(calibrated_reflectance, h, w);
 
             // 查找最近的 (mua, musp)
             auto [mua, musp] = lookup.query(measured);

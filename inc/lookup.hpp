@@ -12,7 +12,7 @@ namespace SFDI
     {
         Optical_prop mua;       // 吸收系数
         Optical_prop musp;      // 约化散射系数
-        SFDI::SFDI_Model model; // 计算结果 (WAVELENGTH_NUM × FREQ_NUM)
+        SFDI::Reflect_wave_freq model; // 计算结果 (WAVELENGTH_NUM × FREQ_NUM)
     };
     // KD-Tree 适配器：直接基于 SFDI_Result 的 model 字段
     struct ResultCloud
@@ -62,7 +62,7 @@ namespace SFDI
         ~SFDI_Lookup() = default;
 
         // 查找接口：给定测量的 model，返回最近的 (mua, musp)
-        std::pair<Optical_prop, Optical_prop> query(const SFDI_Model &measured) const;
+        std::pair<Optical_prop, Optical_prop> query(const Reflect_wave_freq &measured) const;
     };
 }
 #endif // LOOKUP_HPP

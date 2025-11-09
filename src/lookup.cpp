@@ -24,8 +24,8 @@ namespace
         {
             std::cout << "Lookup table not found, generating new table..." << std::endl;
             SFDI::model_SFDI comp("reference_670", "ROfRhoAndTime");
-            const int N_MUA = (mua_dim_num >= 800) ? mua_dim_num : 800;    // mua取800个点
-            const int N_MUSP = (musp_dim_num >= 800) ? musp_dim_num : 800; // musp取800个点
+            const int N_MUA = mua_dim_num;    // 
+            const int N_MUSP = musp_dim_num; // 
             const int N_TOTAL = N_MUA * N_MUSP;
 
             std::cout << "Generating " << N_TOTAL << " samples (" << N_MUA << " x " << N_MUSP << ")..." << std::endl;
@@ -152,7 +152,7 @@ SFDI::SFDI_Lookup::SFDI_Lookup(int mua_dim_num, int musp_dim_num, std::string lo
 }
 
 std::pair<SFDI::Optical_prop, SFDI::Optical_prop>
-SFDI::SFDI_Lookup::query(const SFDI_Model &measured) const
+SFDI::SFDI_Lookup::query(const Reflect_wave_freq &measured) const
 {
     // 将 measured 展平为查询点
     // Eigen::Array 内存是连续的，直接复制
