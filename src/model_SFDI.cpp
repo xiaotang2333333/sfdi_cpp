@@ -6,8 +6,7 @@ namespace
 {
     static SFDI::MC_data R_of_rho_time_mc;
     constexpr double light_speed = 299.792458; // 光速 mm/ns
-    constexpr double PI = 3.14159265358979323846;
-    constexpr double two_pi = 2.0 * PI;
+    constexpr double two_pi = 2.0 * M_PI;
     std::once_flag load_flag;
     void load_R_of_rho_time(const std::string &path)
     {
@@ -22,8 +21,6 @@ namespace
     constexpr double delta_t = 0.01, delta_rho = 0.1;
     static const Eigen::ArrayXd time_var = Eigen::ArrayXd::LinSpaced(SFDI::TIME_BIN, delta_t / 2, delta_t *SFDI::TIME_BIN - delta_t / 2);
     static const Eigen::ArrayXd rho_var = Eigen::ArrayXd::LinSpaced(SFDI::RHO_BIN, delta_rho / 2, delta_rho *SFDI::RHO_BIN - delta_rho / 2);
-    static Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> Rho_tensor_map(
-        rho_var.data(), 1, 1, SFDI::RHO_BIN);
 }
 SFDI::model_SFDI::model_SFDI(
     const std::string &ref_folder,
@@ -37,28 +34,20 @@ SFDI::model_SFDI::model_SFDI(
         Eigen::Sizes<WAVELENGTH_NUM, FREQ_NUM, RHO_BIN>,
         Eigen::RowMajor>>();
     int_time_ptr = std::make_unique<Int_time>();
-    int_time_ptr->constant(1.0); // 默认积分时间1s
-    n.Zero();
-    v.Constant(light_speed); // 光速 除以折射率
-    frequency.Zero();
+    int_time_ptr->setConstant(1.0); // 默认积分时间1s
     std::cout << "Loading Monte Carlo data from: " << R_of_rho_time_mc_path << std::endl;
     std::call_once(load_flag, load_R_of_rho_time, R_of_rho_time_mc_path);
     std::cout << "Monte Carlo data loaded" << std::endl;
     v_t.resize(SFDI::WAVELENGTH_NUM, SFDI::TIME_BIN);
-    term_same.resize(SFDI::WAVELENGTH_NUM, SFDI::RHO_BIN);
-    term_same_tensor_ptr = std::make_unique<Eigen::TensorMap<Eigen::Tensor<double, 3, Eigen::RowMajor>>>(
-        term_same.data(), SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN);
-    frequency_tensor_ptr = std::make_unique<Eigen::TensorMap<Eigen::Tensor<double, 3, Eigen::RowMajor>>>(
-        frequency.data(), 1, SFDI::FREQ_NUM, 1);
-    term_same = two_pi * (rho_var.transpose().replicate(SFDI::WAVELENGTH_NUM, 1));
+    twopi_rho_drho.resize(SFDI::WAVELENGTH_NUM, SFDI::RHO_BIN);
+    twopi_rho_drho = delta_rho * two_pi * (rho_var.transpose().replicate(SFDI::WAVELENGTH_NUM, 1));
     setN(SFDI::Optical_prop().setConstant(1.37));
-    setIntTime(SFDI::Int_time().setConstant(1)); // 默认积分时间1s
-    SFDI::Freq freq_values;
-    freq_values << 0.0, 0.2;
-    setFrequency(freq_values);
+    setFrequency((SFDI::Freq() << 0.0, 0.2).finished());
     LoadAndComputeAC(ref_folder, *ref_AC_ptr);
     init_workspace();
     mc_model_for_SFDI(SFDI::Optical_prop().setConstant(0.0059), SFDI::Optical_prop().setConstant(0.9748), *ref_R_ptr);
+    std::cout << diff_model_for_SFDI(SFDI::Optical_prop().setConstant(0.0059), SFDI::Optical_prop().setConstant(0.9748)) << std::endl;
+    std::cout << *ref_R_ptr << std::endl;
 }
 SFDI::Tiff_img SFDI::open_tiff(const std::string &filename)
 {
@@ -129,17 +118,17 @@ void SFDI::model_SFDI::mc_model_for_SFDI(const Optical_prop mua, const Optical_p
     MC_Workspace &ws = workspaces[thread_id];
     // 计算时间域衰减并转换到空间域 R_rho
     // (W, T) * (T, R) -> (W, R)
-    auto decay = (-(v_t.colwise() * (mua * musp_inv))).exp();
-    ws.R_rho = (decay.matrix() * R_of_rho_time_mc.matrix()).array();
-    // 构建积分权重 term_noj:  R_rho * term_same * delta_rho / musp^2
-    ws.term_noj = ws.R_rho * term_same * delta_rho * F_ratio_times_delta_t.replicate(1, SFDI::RHO_BIN);
+    auto decay = (-(v_t.colwise() * (mua * musp_inv))).exp();        // exp(-v * t * mua / musp )
+    ws.R_rho = (decay.matrix() * R_of_rho_time_mc.matrix()).array(); // R_rho = R_of_rho_time_mc /F * decay *dt/musp *musp^3
+    // 构建积分权重 term_noj:  R_rho * twopi_rho_drho  / musp^2
+    ws.term_noj = ws.R_rho * twopi_rho_drho * delta_t_div_fresnel.replicate(1, SFDI::RHO_BIN); //
 
     Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>>
         term_noj_tensor(ws.term_noj.data(), SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN);
     Eigen::TensorMap<Eigen::Tensor<double, 2, Eigen::RowMajor>> dst_map(dst.data(), SFDI::WAVELENGTH_NUM, SFDI::FREQ_NUM);
     // 执行汉克尔变换(沿 R 轴求和)
     dst_map = (term_noj_tensor.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, 1}) *
-               (*Jterm_ptr * (musp_inv_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, SFDI::RHO_BIN}))).bessel_j0())
+               ((*Jterm_ptr) * (musp_inv_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, SFDI::RHO_BIN}))).bessel_j0())
                   .sum(Eigen::array<Eigen::Index, 1>{2}); // 对 R 轴求和
 }
 Eigen::Map<const SFDI::Reflect_wave_freq> SFDI::AC2Model(const SFDI::SFDI_AC &ac, int h, int w)
@@ -153,7 +142,11 @@ void SFDI::model_SFDI::setFrequency(const Freq &freq_input)
     if (!freq_input.isApprox(this->frequency))
     {
         this->frequency = freq_input;
-        (*Jterm_ptr) = (frequency_tensor_ptr->broadcast(Eigen::array<Eigen::Index, 3>{SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN}) *
+        Eigen::TensorMap<Eigen::Tensor<double, 3, Eigen::RowMajor>> frequency_tensor(
+            frequency.data(), 1, SFDI::FREQ_NUM, 1);
+        Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> Rho_tensor_map(
+            rho_var.data(), 1, 1, SFDI::RHO_BIN);
+        (*Jterm_ptr) = (frequency_tensor.broadcast(Eigen::array<Eigen::Index, 3>{SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN}) *
                         Rho_tensor_map.broadcast(Eigen::array<Eigen::Index, 3>{WAVELENGTH_NUM, FREQ_NUM, 1}) * two_pi);
     }
 }
@@ -164,7 +157,7 @@ void SFDI::model_SFDI::setN(const Optical_prop &input_n)
         v = light_speed / input_n; // 光速除以折射率
         n = input_n;
         auto F = 1 - ((1 - input_n) / (1 + input_n)).square();
-        F_ratio_times_delta_t = (delta_t / F).eval();
+        delta_t_div_fresnel = (delta_t / F).eval();
         v_t = v.matrix() * time_var.transpose().matrix(); // (W,T) 预计算 v*t
     }
 }
@@ -226,15 +219,17 @@ void SFDI::model_SFDI::FreqTest(double start, double end, int num_points)
     Eigen::ArrayXXd R_rho, term_noj;
     R_rho.resize(SFDI::WAVELENGTH_NUM, SFDI::RHO_BIN);
     term_noj.resize(SFDI::WAVELENGTH_NUM, SFDI::RHO_BIN);
-    auto decay = (-(v_t.colwise() * mua_test)).exp();
-    R_rho = (decay.matrix() * R_of_rho_time_mc.matrix()).array();
-    // 构建积分权重 term_noj:  R_rho * term_same * delta_rho / musp^2
-    term_noj = R_rho * term_same * delta_rho * F_ratio_times_delta_t.replicate(1, SFDI::RHO_BIN);
+    auto decay = (-(v_t.colwise() * mua_test)).exp();             // exp(-v * t * mua / musp ) =  exp(-v * t * mua)
+    R_rho = (decay.matrix() * R_of_rho_time_mc.matrix()).array(); // R_rho = sum(R_of_rho_time*decay * dt / F ) * musp ^ 2
+    // 构建积分权重 term_noj:  R_rho * twopi_rho_drho  / musp^2
+    term_noj = R_rho * twopi_rho_drho * delta_t_div_fresnel.replicate(1, SFDI::RHO_BIN);
     Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>>
         term_noj_tensor(term_noj.data(), SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN);
     Eigen::Tensor<double, 2, Eigen::RowMajor> R_freqs(SFDI::WAVELENGTH_NUM, num_points);
-    Eigen::Tensor<double, 3, Eigen::RowMajor> Jterm = Eigen::Tensor<double, 3, Eigen::RowMajor>(SFDI::WAVELENGTH_NUM, num_points, SFDI::RHO_BIN);
-    Jterm = (test_freqs_map.broadcast(Eigen::array<Eigen::Index, 3>{SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN}) *
+    Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> Rho_tensor_map(
+        rho_var.data(), 1, 1, SFDI::RHO_BIN);
+    Eigen::Tensor<double, 3, Eigen::RowMajor> Jterm(SFDI::WAVELENGTH_NUM, num_points, SFDI::RHO_BIN);
+    Jterm = (test_freqs_map.broadcast(Eigen::array<Eigen::Index, 3>{SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN}) * // 2pi*f*rho / musp = 2pi*f*rho
              Rho_tensor_map.broadcast(Eigen::array<Eigen::Index, 3>{SFDI::WAVELENGTH_NUM, num_points, 1}) * two_pi);
     R_freqs = (term_noj_tensor.broadcast(Eigen::array<Eigen::Index, 3>{1, num_points, 1}) *
                Jterm.bessel_j0())

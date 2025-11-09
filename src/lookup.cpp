@@ -4,8 +4,8 @@
 #include <cstring> // for std::memcpy
 constexpr double mua_start = 1e-5;
 constexpr double mua_end = 0.2;
-constexpr double musp_start = 0.4;
-constexpr double musp_end = 2;
+constexpr double musp_start = 1e-5;
+constexpr double musp_end = 3.2;
 
 namespace
 {

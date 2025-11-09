@@ -55,10 +55,9 @@ namespace SFDI
     private:
         std::unique_ptr<SFDI_AC> ref_AC_ptr;
         std::unique_ptr<Reflect_wave_freq> ref_R_ptr; // (W,F,R)
-        Optical_prop n, F_ratio_times_delta_t, v;
+        Optical_prop n, delta_t_div_fresnel, v;
         Freq frequency;
-        Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic> v_t, term_same; //(W,R)
-        std::unique_ptr<Eigen::TensorMap<Eigen::Tensor<double, 3, Eigen::RowMajor>>> term_same_tensor_ptr, frequency_tensor_ptr, term_noj_tensor_ptr;
+        Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic> v_t, twopi_rho_drho; //(W,R)
         std::unique_ptr<Eigen::TensorFixedSize<
             double,
             Eigen::Sizes<WAVELENGTH_NUM, FREQ_NUM, RHO_BIN>,
