@@ -71,7 +71,7 @@ namespace SFDI
             const std::string &ref_folder = "reference_670",
             const std::string &R_of_rho_time_mc_path = "ROfRhoAndTime");
         ~model_SFDI() = default;
-        Reflect_wave_freq diff_model_for_SFDI(const Optical_prop mua, const Optical_prop musp);
+        void diff_model_for_SFDI(const Optical_prop mua, const Optical_prop musp,Reflect_wave_freq &dst);
         void mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst);
         void LoadAndComputeAC(const std::string &folder, SFDI_AC &output_ac);
         void R_compute(const SFDI_AC &input_ac, SFDI_AC &output_R);

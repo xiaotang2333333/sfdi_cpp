@@ -41,12 +41,13 @@ SFDI::model_SFDI::model_SFDI(
     v_t.resize(SFDI::WAVELENGTH_NUM, SFDI::TIME_BIN);
     twopi_rho_drho.resize(SFDI::WAVELENGTH_NUM, SFDI::RHO_BIN);
     twopi_rho_drho = delta_rho * two_pi * (rho_var.transpose().replicate(SFDI::WAVELENGTH_NUM, 1));
-    setN(SFDI::Optical_prop().setConstant(1.37));
+    setN(SFDI::Optical_prop().Constant(1.37));
     setFrequency((SFDI::Freq() << 0.0, 0.2).finished());
     LoadAndComputeAC(ref_folder, *ref_AC_ptr);
     init_workspace();
+    diff_model_for_SFDI(SFDI::Optical_prop().setConstant(0.0059), SFDI::Optical_prop().setConstant(0.9748), *ref_R_ptr);
+    std::cout << *ref_R_ptr << std::endl;
     mc_model_for_SFDI(SFDI::Optical_prop().setConstant(0.0059), SFDI::Optical_prop().setConstant(0.9748), *ref_R_ptr);
-    std::cout << diff_model_for_SFDI(SFDI::Optical_prop().setConstant(0.0059), SFDI::Optical_prop().setConstant(0.9748)) << std::endl;
     std::cout << *ref_R_ptr << std::endl;
 }
 SFDI::Tiff_img SFDI::open_tiff(const std::string &filename)
@@ -57,13 +58,23 @@ SFDI::Tiff_img SFDI::open_tiff(const std::string &filename)
         std::cerr << "Error: Unable to open image file: " << filename << std::endl;
         return SFDI::Tiff_img(0, 0, 0);
     }
-
-    // Ensure the image is 16-bit unsigned integer
-    if (img.depth() != CV_16U)
+    // 保留原始浮点数：如果是 32F/64F 直接转换到 64F；如果是 16U 则提升到 64F；其它类型统一提升
+    switch (img.depth())
     {
-        img.convertTo(img, CV_16U);
+    case CV_16U:
+        img.convertTo(img, CV_64F); // 16位提升为 double
+        break;
+    case CV_32F:
+        img.convertTo(img, CV_64F); // float -> double 保留数值
+        break;
+    case CV_64F:
+        // 已经是 double 保持不变
+        break;
+    default:
+        // 其它整型类型提升到 double（可能丢失原本的动态范围但保持值）
+        img.convertTo(img, CV_64F);
+        break;
     }
-    img.convertTo(img, CV_64F);
     SFDI::Tiff_img temp;
     cv::cv2eigen(img, temp);
     return temp;
@@ -87,7 +98,7 @@ void SFDI::Compute_AC(const SFDI::SFDI_data &input, const SFDI::Int_time &int_ti
     output.device(Eigen::DefaultDevice()) =
         (numerator.sqrt() * sqrt_2_over_3 / int_time_bcast);
 }
-SFDI::Reflect_wave_freq SFDI::model_SFDI::diff_model_for_SFDI(const SFDI::Optical_prop mua, const SFDI::Optical_prop musp)
+void SFDI::model_SFDI::diff_model_for_SFDI(const SFDI::Optical_prop mua, const SFDI::Optical_prop musp, Reflect_wave_freq &dst)
 {
 
     auto mutrans = mua + musp;
@@ -105,15 +116,14 @@ SFDI::Reflect_wave_freq SFDI::model_SFDI::diff_model_for_SFDI(const SFDI::Optica
     denom1.colwise() += mutrans;                                   // mueff + mutrans
     Reflect_wave_freq denom2 = mueff_prime;                        // (W,F)
     denom2.colwise() += threeA * mutrans;                          // mueff + 3*A*mutrans
-    SFDI::Reflect_wave_freq reflectance_fx =
+    dst =
         num_col.template replicate<1, FREQ_NUM>() / (denom1 * denom2); // (W,F)
-    return reflectance_fx;
 }
 void SFDI::model_SFDI::mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, SFDI::Reflect_wave_freq &dst)
 {
     // (W, 1) 预计算倒数
     Optical_prop musp_inv = musp.inverse();
-    Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> musp_inv_map(musp.data(), SFDI::WAVELENGTH_NUM, 1, 1);
+    Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> musp_inv_map(musp_inv.data(), SFDI::WAVELENGTH_NUM, 1, 1);
     int thread_id = omp_get_thread_num();
     MC_Workspace &ws = workspaces[thread_id];
     // 计算时间域衰减并转换到空间域 R_rho
@@ -141,19 +151,23 @@ void SFDI::model_SFDI::setFrequency(const Freq &freq_input)
 {
     if (!freq_input.isApprox(this->frequency))
     {
-        this->frequency = freq_input;
-        Eigen::TensorMap<Eigen::Tensor<double, 3, Eigen::RowMajor>> frequency_tensor(
+        std::cout << "Setting modulation frequency to: " << freq_input.transpose() << " mm^-1" << std::endl;
+        frequency = freq_input;
+        Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> frequency_tensor(
             frequency.data(), 1, SFDI::FREQ_NUM, 1);
         Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> Rho_tensor_map(
             rho_var.data(), 1, 1, SFDI::RHO_BIN);
-        (*Jterm_ptr) = (frequency_tensor.broadcast(Eigen::array<Eigen::Index, 3>{SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN}) *
-                        Rho_tensor_map.broadcast(Eigen::array<Eigen::Index, 3>{WAVELENGTH_NUM, FREQ_NUM, 1}) * two_pi);
+        (*Jterm_ptr) = (
+            frequency_tensor.broadcast(Eigen::array<Eigen::Index, 3>{SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN}) 
+            * Rho_tensor_map.broadcast(Eigen::array<Eigen::Index, 3>{WAVELENGTH_NUM, FREQ_NUM, 1})             
+            ) * two_pi;
     }
 }
 void SFDI::model_SFDI::setN(const Optical_prop &input_n)
 {
     if (!n.isApprox(input_n))
     {
+        std::cout << "Setting refractive index to: " << input_n.transpose() << std::endl;
         v = light_speed / input_n; // 光速除以折射率
         n = input_n;
         auto F = 1 - ((1 - input_n) / (1 + input_n)).square();
