@@ -229,7 +229,7 @@ void SFDI::model_SFDI::FreqTest(double start, double end, int num_points)
 {
     Eigen::ArrayXd test_freqs = Eigen::ArrayXd::LinSpaced(num_points, start, end);
     Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> test_freqs_map(test_freqs.data(), 1, num_points, 1);
-    Optical_prop mua_test = Optical_prop::Constant(0.01), musp_test = Optical_prop::Constant(1.0);
+    Optical_prop mua_test = Optical_prop::Constant(0.01);
     Eigen::ArrayXXd R_rho, term_noj;
     R_rho.resize(SFDI::WAVELENGTH_NUM, SFDI::RHO_BIN);
     term_noj.resize(SFDI::WAVELENGTH_NUM, SFDI::RHO_BIN);
