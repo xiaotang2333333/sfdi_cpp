@@ -7,6 +7,7 @@
       "default-features": false,
       "features": ["tiff", "eigen", "fs"]
     },
-    "nanoflann"
+    "nanoflann",
+    "nlopt"
   ]
 }

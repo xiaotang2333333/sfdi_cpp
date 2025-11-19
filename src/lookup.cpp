@@ -154,11 +154,6 @@ SFDI::SFDI_Lookup::SFDI_Lookup(int mua_dim_num, int musp_dim_num, std::string lo
 std::pair<SFDI::Optical_prop, SFDI::Optical_prop>
 SFDI::SFDI_Lookup::query(const Reflect_wave_freq &measured) const
 {
-    // 将 measured 展平为查询点
-    // Eigen::Array 内存是连续的，直接复制
-    std::vector<double> query_pt(WAVELENGTH_NUM * FREQ_NUM);
-    std::memcpy(query_pt.data(), measured.data(), sizeof(double) * WAVELENGTH_NUM * FREQ_NUM);
-
     // KNN 查找（k=1，即最近邻）
     const size_t num_results = 1;
     size_t ret_index;
@@ -167,7 +162,7 @@ SFDI::SFDI_Lookup::query(const Reflect_wave_freq &measured) const
     nanoflann::KNNResultSet<double> resultSet(num_results);
     resultSet.init(&ret_index, &out_dist_sqr);
 
-    index->findNeighbors(resultSet, query_pt.data());
+    index->findNeighbors(resultSet,  measured.data());
 
     // 返回最近点的 (mua, musp)
     const auto &results = get_results_table();

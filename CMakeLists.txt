@@ -14,6 +14,7 @@ find_package(Eigen3 CONFIG REQUIRED)
 find_package(OpenBLAS CONFIG REQUIRED)
 find_package(OpenMP REQUIRED)
 find_package(nanoflann CONFIG REQUIRED)
+find_package(NLopt REQUIRED)
 target_include_directories(sfdi PRIVATE
     ${OpenCV_INCLUDE_DIRS}
     ${CMAKE_CURRENT_SOURCE_DIR}/inc
@@ -26,6 +27,7 @@ target_link_libraries(sfdi PRIVATE
     OpenBLAS::OpenBLAS 
     OpenMP::OpenMP_CXX
     nanoflann::nanoflann
+    NLopt::nlopt
 )
 target_compile_options(sfdi PRIVATE -O3 -ffast-math -funroll-loops -flto )
 target_link_libraries(sfdi PRIVATE -fopenmp -flto)
