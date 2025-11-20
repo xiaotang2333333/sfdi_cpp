@@ -24,23 +24,24 @@ void GridInverseSolver::build_grid()
         for (int j = 0; j < rac_n; ++j)
         {
             double rac = rac_min + (rac_max - rac_min) * j / (rac_n - 1);
-            Reflect_wave_freq reflect = Reflect_wave_freq::Zero();
-            for (int c = 0; c < W; ++c)
-            {
-                reflect(c, 0) = rdc;
-                reflect(c, 1) = rac;
-            }
-            Optical_prop mua = Optical_prop::Zero();
-            Optical_prop musp = Optical_prop::Zero();
             // 仅保留 RDC > RAC 的组合（结构光中 RAC 必然小于 RDC）
-            if (rdc > rac) {
+            if (rdc > rac)
+            {
+                Reflect_freq reflect = Reflect_freq::Zero();
+                for (int c = 0; c < W; ++c)
+                {
+                    reflect(c, 0) = rdc;
+                    reflect(c, 1) = rac;
+                }
+                Optical_prop mua = Optical_prop::Zero();
+                Optical_prop musp = Optical_prop::Zero();
                 grid_results.push_back({mua, musp, reflect});
             }
         }
     }
 }
 
-void GridInverseSolver::solve(const Reflect_wave_freq &target, Optical_prop &dst_mua, Optical_prop &dst_musp) const
+void GridInverseSolver::solve(const Reflect_freq &target, Optical_prop &dst_mua, Optical_prop &dst_musp) const
 {
     constexpr int W = SFDI::WAVELENGTH_NUM;
     constexpr int F = SFDI::FREQ_NUM;
@@ -63,8 +64,8 @@ void GridInverseSolver::solve(const Reflect_wave_freq &target, Optical_prop &dst
     struct Ctx
     {
         model_SFDI *model;
-        const Reflect_wave_freq *target;
-    } ctx = {&model, &target};
+        SFDI::Reflect_freq target;
+    } ctx = {&model, target.replicate(1, F).eval()};
     opt.set_min_objective(
         [](const std::vector<double> &x, std::vector<double> &grad, void *data) -> double
         {
@@ -77,9 +78,10 @@ void GridInverseSolver::solve(const Reflect_wave_freq &target, Optical_prop &dst
                 mua(c) = x[2 * c];
                 musp(c) = x[2 * c + 1];
             }
-            SFDI::Reflect_wave_freq pred;
+            SFDI::Reflect_freq pred;
             ctx->model->mc_model_for_SFDI(mua, musp, pred);
-            return (pred - *(ctx->target)).square().sum();
+
+            return (pred - ctx->target).square().sum();
         },
         &ctx);
     double minf = 0.0;
@@ -109,13 +111,13 @@ void GridInverseSolver::solve_and_save(const std::string &output_bin)
 #pragma omp parallel for
     for (size_t i = 0; i < grid_results.size(); ++i)
     {
-        solve(grid_results[i].reflect, grid_results[i].mua, grid_results[i].musp);
+        solve(grid_results[i].model, grid_results[i].mua, grid_results[i].musp);
     }
     for (const auto &item : grid_results)
     {
         fout.write(reinterpret_cast<const char *>(item.mua.data()), sizeof(double) * SFDI::WAVELENGTH_NUM);
         fout.write(reinterpret_cast<const char *>(item.musp.data()), sizeof(double) * SFDI::WAVELENGTH_NUM);
-        fout.write(reinterpret_cast<const char *>(item.reflect.data()), sizeof(double) * SFDI::WAVELENGTH_NUM * SFDI::FREQ_NUM);
+        fout.write(reinterpret_cast<const char *>(item.model.data()), sizeof(double) * SFDI::WAVELENGTH_NUM * SFDI::FREQ_NUM);
     }
     fout.close();
 }

@@ -126,8 +126,7 @@ void SFDI::model_SFDI::mc_model_for_SFDI(const Optical_prop mua, const Optical_p
     Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> musp_inv_map(musp_inv.data(), SFDI::WAVELENGTH_NUM, 1, 1);
     int thread_id = omp_get_thread_num();
     MC_Workspace &ws = workspaces[thread_id];
-    // 计算时间域衰减并转换到空间域 R_rho
-    // (W, T) * (T, R) -> (W, R)
+     // (W, T) * (T, R) -> (W, R)
     auto decay = (-(v_t.colwise() * (mua * musp_inv))).exp();        // exp(-v * t * mua / musp )
     ws.R_rho = (decay.matrix() * R_of_rho_time_mc.matrix()).array(); // R_rho = R_of_rho_time_mc /F * decay *dt/musp *musp^3
     // 构建积分权重 term_noj:  R_rho * twopi_rho_drho  / musp^2

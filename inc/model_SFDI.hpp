@@ -32,11 +32,18 @@ namespace SFDI
     using Optical_prop_map = Eigen::TensorFixedSize<
         double,
         Eigen::Sizes<IMG_HEIGHT, IMG_WIDTH, WAVELENGTH_NUM>,
-        Eigen::RowMajor>;                                                 // 一维数组 包含每个波长的积分时间
-    using Optical_prop = Eigen::Array<double, WAVELENGTH_NUM, 1>;         // 光学特性 与 波长相关
-    using Freq = Eigen::Array<double, FREQ_NUM, 1>;                       // 固定长度一维向量
-    using Reflect_wave_freq = Eigen::Array<double, WAVELENGTH_NUM, FREQ_NUM>;    // 固定大小二维数组
-    using MC_data = Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic>; // 固定大小二维数组(T,R)读取蒙特卡罗模拟结果
+        Eigen::RowMajor>;                                                     // 一维数组 包含每个波长的积分时间
+    using Optical_prop = Eigen::Array<double, WAVELENGTH_NUM, 1>;             // 光学特性 与 波长相关
+    using Freq = Eigen::Array<double, FREQ_NUM, 1>;                           // 固定长度一维向量
+    using Reflect_wave_freq = Eigen::Array<double, WAVELENGTH_NUM, FREQ_NUM>; // 固定大小二维数组
+    using Reflect_freq = Eigen::Array<double, 1, FREQ_NUM>;                   // 固定大小一维数组
+    using MC_data = Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic>;     // 固定大小二维数组(T,R)读取蒙特卡罗模拟结果
+    struct SFDI_Result
+    {
+        Optical_prop mua;         // 吸收系数
+        Optical_prop musp;        // 约化散射系数
+        SFDI::Reflect_freq model; // 计算结果 (WAVELENGTH_NUM × FREQ_NUM)
+    };
     extern Eigen::Map<const Reflect_wave_freq> AC2Model(const SFDI_AC &ac, int h, int w);
     extern void Compute_AC(const SFDI_data &input, const Int_time &int_time, SFDI_AC &output);
     extern Tiff_img open_tiff(const std::string &filename);
@@ -66,12 +73,13 @@ namespace SFDI
         std::unique_ptr<Int_time> int_time_ptr;
         std::vector<MC_Workspace> workspaces;
         void init_workspace(void);
+
     public:
         model_SFDI(
             const std::string &ref_folder = "reference_670",
             const std::string &R_of_rho_time_mc_path = "ROfRhoAndTime");
         ~model_SFDI() = default;
-        void diff_model_for_SFDI(const Optical_prop mua, const Optical_prop musp,Reflect_wave_freq &dst);
+        void diff_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst);
         void mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst);
         void LoadAndComputeAC(const std::string &folder, SFDI_AC &output_ac);
         void R_compute(const SFDI_AC &input_ac, SFDI_AC &output_R);
