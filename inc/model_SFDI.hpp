@@ -3,12 +3,14 @@
 #include <string>
 #include <stdexcept>
 #include <Eigen/Dense>
-#include <opencv2/opencv.hpp>
-#include <opencv2/core/eigen.hpp>
+#include <mutex>
+#include <fstream>
+#include <iostream>
 #include <unsupported/Eigen/CXX11/Tensor>
 #include <unsupported/Eigen/SpecialFunctions>
 namespace SFDI
 {
+
 
     constexpr int IMG_HEIGHT = 512,
                   IMG_WIDTH = 672,
@@ -21,7 +23,7 @@ namespace SFDI
         double,
         Eigen::Sizes<IMG_HEIGHT, IMG_WIDTH, WAVELENGTH_NUM, 3, FREQ_NUM>,
         Eigen::RowMajor>; // (H,W,C,P,F)
-    using SFDI_AC = Eigen::TensorFixedSize<
+    using SFDI_Reflect = Eigen::TensorFixedSize<
         double,
         Eigen::Sizes<IMG_HEIGHT, IMG_WIDTH, WAVELENGTH_NUM, FREQ_NUM>,
         Eigen::RowMajor>; // (H,W,C,F) AC分量计算结果
@@ -44,8 +46,8 @@ namespace SFDI
         Optical_prop musp;        // 约化散射系数
         SFDI::Reflect_freq model; // 计算结果 (WAVELENGTH_NUM × FREQ_NUM)
     };
-    extern Eigen::Map<const Reflect_wave_freq> AC2Model(const SFDI_AC &ac, int h, int w);
-    extern void Compute_AC(const SFDI_data &input, const Int_time &int_time, SFDI_AC &output);
+    extern Eigen::Map<const Reflect_wave_freq> AC2Model(const SFDI_Reflect &ac, int h, int w);
+    extern void Compute_AC(const SFDI_data &input, const Int_time &int_time, SFDI_Reflect &output);
     extern Tiff_img open_tiff(const std::string &filename);
     struct MC_Workspace
     {
@@ -60,7 +62,7 @@ namespace SFDI
     class model_SFDI
     {
     private:
-        std::unique_ptr<SFDI_AC> ref_AC_ptr;
+        std::unique_ptr<SFDI_Reflect> ref_AC_ptr;
         std::unique_ptr<Reflect_wave_freq> ref_R_ptr; // (W,F,R)
         Optical_prop n, delta_t_div_fresnel, v;
         Freq frequency;
@@ -81,8 +83,9 @@ namespace SFDI
         ~model_SFDI() = default;
         void diff_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst);
         void mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst);
-        void LoadAndComputeAC(const std::string &folder, SFDI_AC &output_ac);
-        void R_compute(const SFDI_AC &input_ac, SFDI_AC &output_R);
+        void mc_model_for_SFDI(const double mua,const double musp, const int wave_index,Reflect_freq &dst);
+        void LoadAndComputeAC(const std::string &folder, SFDI_Reflect &output_ac);
+        void R_compute(const SFDI_Reflect &input_ac, SFDI_Reflect &output_R);
         void setFrequency(const Freq &freq);
         void setN(const Optical_prop &n);
         void setIntTime(const Int_time &int_time);

@@ -1,7 +1,8 @@
 #include "model_SFDI.hpp"
+#include <tiffio.h>
 #include <omp.h>
-#include <fstream>
-#include <stdexcept>
+#include <vector>
+#include <cstdint>
 namespace
 {
     static SFDI::MC_data R_of_rho_time_mc;
@@ -18,7 +19,7 @@ namespace
                  sizeof(double) * (SFDI::TIME_BIN) * (SFDI::RHO_BIN));
         fin.close();
     }
-    constexpr double delta_t = 0.01, delta_rho = 0.1;
+    constexpr double delta_t = 100.0 / SFDI::TIME_BIN, delta_rho = 100.0 / SFDI::RHO_BIN;
     static const Eigen::ArrayXd time_var = Eigen::ArrayXd::LinSpaced(SFDI::TIME_BIN, delta_t / 2, delta_t *SFDI::TIME_BIN - delta_t / 2);
     static const Eigen::ArrayXd rho_var = Eigen::ArrayXd::LinSpaced(SFDI::RHO_BIN, delta_rho / 2, delta_rho *SFDI::RHO_BIN - delta_rho / 2);
 }
@@ -27,7 +28,7 @@ SFDI::model_SFDI::model_SFDI(
     const std::string &R_of_rho_time_mc_path)
 {
     std::cout << "Initializing SFDI model..." << std::endl;
-    ref_AC_ptr = std::make_unique<SFDI_AC>();
+    ref_AC_ptr = std::make_unique<SFDI_Reflect>();
     ref_R_ptr = std::make_unique<Reflect_wave_freq>();
     Jterm_ptr = std::make_unique<Eigen::TensorFixedSize<
         double,
@@ -52,34 +53,83 @@ SFDI::model_SFDI::model_SFDI(
 }
 SFDI::Tiff_img SFDI::open_tiff(const std::string &filename)
 {
-    cv::Mat img = cv::imread(filename, cv::IMREAD_UNCHANGED);
-    if (img.empty())
+    TIFF *tif = TIFFOpen(filename.c_str(), "r");
+    if (!tif)
     {
-        std::cerr << "Error: Unable to open image file: " << filename << std::endl;
+        std::cerr << "Error: Unable to open TIFF file: " << filename << std::endl;
         return SFDI::Tiff_img(0, 0, 0);
     }
-    // 保留原始浮点数：如果是 32F/64F 直接转换到 64F；如果是 16U 则提升到 64F；其它类型统一提升
-    switch (img.depth())
+    uint32_t width = 0, height = 0;
+    uint16_t samples = 1, bps = 8, sampleformat = SAMPLEFORMAT_UINT;
+    uint16_t planar = PLANARCONFIG_CONTIG;
+    TIFFGetField(tif, TIFFTAG_IMAGEWIDTH, &width);
+    TIFFGetField(tif, TIFFTAG_IMAGELENGTH, &height);
+    TIFFGetFieldDefaulted(tif, TIFFTAG_SAMPLESPERPIXEL, &samples);
+    TIFFGetFieldDefaulted(tif, TIFFTAG_BITSPERSAMPLE, &bps);
+    TIFFGetFieldDefaulted(tif, TIFFTAG_SAMPLEFORMAT, &sampleformat);
+    TIFFGetFieldDefaulted(tif, TIFFTAG_PLANARCONFIG, &planar);
+
+    if (planar != PLANARCONFIG_CONTIG)
     {
-    case CV_16U:
-        img.convertTo(img, CV_64F); // 16位提升为 double
-        break;
-    case CV_32F:
-        img.convertTo(img, CV_64F); // float -> double 保留数值
-        break;
-    case CV_64F:
-        // 已经是 double 保持不变
-        break;
-    default:
-        // 其它整型类型提升到 double（可能丢失原本的动态范围但保持值）
-        img.convertTo(img, CV_64F);
-        break;
+        std::cerr << "Error: Planar separate TIFF not supported: " << filename << std::endl;
+        TIFFClose(tif);
+        return SFDI::Tiff_img(0, 0, 0);
     }
-    SFDI::Tiff_img temp;
-    cv::cv2eigen(img, temp);
-    return temp;
+
+    // 创建输出张量: (H, W, samples)
+    SFDI::Tiff_img out(static_cast<int>(height), static_cast<int>(width), static_cast<int>(samples));
+
+    tsize_t scanline_size = TIFFScanlineSize(tif);
+    std::vector<uint8_t> buf(scanline_size);
+
+    for (uint32_t row = 0; row < height; ++row)
+    {
+        if (TIFFReadScanline(tif, buf.data(), row) < 0)
+        {
+            std::cerr << "Error: TIFFReadScanline failed at row " << row << " for file: " << filename << std::endl;
+            TIFFClose(tif);
+            return SFDI::Tiff_img(0, 0, 0);
+        }
+
+        if (sampleformat == SAMPLEFORMAT_IEEEFP && bps == 32)
+        {
+            const float *fptr = reinterpret_cast<const float *>(buf.data());
+            for (uint32_t col = 0; col < width; ++col)
+            {
+                for (uint16_t s = 0; s < samples; ++s)
+                {
+                    out(static_cast<int>(row), static_cast<int>(col), static_cast<int>(s)) = static_cast<double>(fptr[col * samples + s]);
+                }
+            }
+        }
+        else if (bps == 16)
+        {
+            const uint16_t *u16 = reinterpret_cast<const uint16_t *>(buf.data());
+            for (uint32_t col = 0; col < width; ++col)
+            {
+                for (uint16_t s = 0; s < samples; ++s)
+                {
+                    out(static_cast<int>(row), static_cast<int>(col), static_cast<int>(s)) = static_cast<double>(u16[col * samples + s]);
+                }
+            }
+        }
+        else // treat as 8-bit unsigned
+        {
+            const uint8_t *u8 = reinterpret_cast<const uint8_t *>(buf.data());
+            for (uint32_t col = 0; col < width; ++col)
+            {
+                for (uint16_t s = 0; s < samples; ++s)
+                {
+                    out(static_cast<int>(row), static_cast<int>(col), static_cast<int>(s)) = static_cast<double>(u8[col * samples + s]);
+                }
+            }
+        }
+    }
+
+    TIFFClose(tif);
+    return out;
 }
-void SFDI::Compute_AC(const SFDI::SFDI_data &input, const SFDI::Int_time &int_time, SFDI::SFDI_AC &output)
+void SFDI::Compute_AC(const SFDI::SFDI_data &input, const SFDI::Int_time &int_time, SFDI::SFDI_Reflect &output)
 {
     const double sqrt_2_over_3 = std::sqrt(2.0) / 3.0;
 
@@ -126,7 +176,7 @@ void SFDI::model_SFDI::mc_model_for_SFDI(const Optical_prop mua, const Optical_p
     Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> musp_inv_map(musp_inv.data(), SFDI::WAVELENGTH_NUM, 1, 1);
     int thread_id = omp_get_thread_num();
     MC_Workspace &ws = workspaces[thread_id];
-     // (W, T) * (T, R) -> (W, R)
+    // (W, T) * (T, R) -> (W, R)
     auto decay = (-(v_t.colwise() * (mua * musp_inv))).exp();        // exp(-v * t * mua / musp )
     ws.R_rho = (decay.matrix() * R_of_rho_time_mc.matrix()).array(); // R_rho = R_of_rho_time_mc /F * decay *dt/musp *musp^3
     // 构建积分权重 term_noj:  R_rho * twopi_rho_drho  / musp^2
@@ -140,7 +190,58 @@ void SFDI::model_SFDI::mc_model_for_SFDI(const Optical_prop mua, const Optical_p
                ((*Jterm_ptr) * (musp_inv_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, SFDI::RHO_BIN}))).bessel_j0())
                   .sum(Eigen::array<Eigen::Index, 1>{2}); // 对 R 轴求和
 }
-Eigen::Map<const SFDI::Reflect_wave_freq> SFDI::AC2Model(const SFDI::SFDI_AC &ac, int h, int w)
+void SFDI::model_SFDI::mc_model_for_SFDI(const double mua,
+                                         const double musp,
+                                         const int wave_index,
+                                         Reflect_freq &dst)//单波长版本
+{
+    if (wave_index < 0 || wave_index >= WAVELENGTH_NUM)
+    {
+        throw std::out_of_range("Wave index out of range in mc_model_for_SFDI");
+    }
+    if (mua <= 0.0 || musp <= 0.0)
+    {
+        throw std::invalid_argument("Non-positive optical properties");
+    }
+
+    const double musp_inv = 1.0 / musp;
+
+    int thread_id = omp_get_thread_num();
+    MC_Workspace &ws = workspaces[thread_id];
+
+    // (1,T) 衰减：exp(- v_t * t * mua / musp)
+    // v_t.row(wave_index) 形状 (T)
+    auto decay_row = (-(v_t.row(wave_index) * (mua * musp_inv))).array().exp(); // (T)
+
+    // (1,T) * (T,RHO_BIN) -> (1,RHO_BIN)
+    ws.R_rho.row(wave_index) =
+        (decay_row.matrix() * R_of_rho_time_mc.matrix()).array(); // 形状 (RHO_BIN)
+
+    // 构建积分权重 (逐 rho)，与原多波长代码保持一致
+    ws.term_noj.row(wave_index) =
+        ws.R_rho.row(wave_index) *
+        twopi_rho_drho.row(wave_index) *
+        delta_t_div_fresnel(wave_index);
+
+    // 把当前波长这一行映射成一个 (1,RHO_BIN) Tensor
+    Eigen::TensorMap<const Eigen::Tensor<double, 2, Eigen::RowMajor>>
+        term_noj_tensor(ws.term_noj.data() + wave_index * RHO_BIN, 1, RHO_BIN);
+
+    // 目标频率行的写入位置：偏移 wave_index * FREQ_NUM
+    Eigen::TensorMap<Eigen::Tensor<double, 1, Eigen::RowMajor>>
+        dst_map(dst.data(), FREQ_NUM);
+
+    // 取 Jterm 的该波长切片：假设 Jterm_ptr 维度 (FREQ_NUM, RHO_BIN)
+    auto J_slice = (*Jterm_ptr).chip(wave_index, 0); // 形状 (FREQ_NUM, RHO_BIN)
+
+    // 汉克尔变换式：逐 rho 求和
+    // z = J_slice * (1/musp), 再 bessel_j0
+    dst_map =
+        (term_noj_tensor.broadcast(Eigen::array<Eigen::Index, 2>{FREQ_NUM, 1}) *
+         (J_slice * musp_inv).bessel_j0())
+            .sum(Eigen::array<Eigen::Index, 1>{1}); // 得到 (FREQ_NUM)
+}
+Eigen::Map<const SFDI::Reflect_wave_freq> SFDI::AC2Model(const SFDI::SFDI_Reflect &ac, int h, int w)
 {
     const double *ptr = ac.data();
     size_t offset = ((h * SFDI::IMG_WIDTH) + w) * SFDI::WAVELENGTH_NUM * SFDI::FREQ_NUM;
@@ -156,10 +257,7 @@ void SFDI::model_SFDI::setFrequency(const Freq &freq_input)
             frequency.data(), 1, SFDI::FREQ_NUM, 1);
         Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> Rho_tensor_map(
             rho_var.data(), 1, 1, SFDI::RHO_BIN);
-        (*Jterm_ptr) = (
-            frequency_tensor.broadcast(Eigen::array<Eigen::Index, 3>{SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN}) 
-            * Rho_tensor_map.broadcast(Eigen::array<Eigen::Index, 3>{WAVELENGTH_NUM, FREQ_NUM, 1})             
-            ) * two_pi;
+        (*Jterm_ptr) = (frequency_tensor.broadcast(Eigen::array<Eigen::Index, 3>{SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN}) * Rho_tensor_map.broadcast(Eigen::array<Eigen::Index, 3>{WAVELENGTH_NUM, FREQ_NUM, 1})) * two_pi;
     }
 }
 void SFDI::model_SFDI::setN(const Optical_prop &input_n)
@@ -178,7 +276,7 @@ void SFDI::model_SFDI::setIntTime(const Int_time &int_time)
 {
     this->int_time_ptr->operator=(int_time);
 }
-void SFDI::model_SFDI::LoadAndComputeAC(const std::string &folder, SFDI_AC &output_ac)
+void SFDI::model_SFDI::LoadAndComputeAC(const std::string &folder, SFDI_Reflect &output_ac)
 {
     if (folder.empty())
     {
@@ -218,7 +316,7 @@ void SFDI::model_SFDI::LoadAndComputeAC(const std::string &folder, SFDI_AC &outp
 /// @brief 计算输入图片集反射率，用于后续反演出mua musp
 /// @param input_ac
 /// @return 输入图片的每个像素点的反射率
-void SFDI::model_SFDI::R_compute(const SFDI::SFDI_AC &input_ac, SFDI::SFDI_AC &output_R)
+void SFDI::model_SFDI::R_compute(const SFDI::SFDI_Reflect &input_ac, SFDI::SFDI_Reflect &output_R)
 {
     Eigen::TensorMap<const Eigen::Tensor<double, 4, Eigen::RowMajor>> ref_R_tensor(
         ref_R_ptr->data(), 1, 1, SFDI::WAVELENGTH_NUM, SFDI::FREQ_NUM);

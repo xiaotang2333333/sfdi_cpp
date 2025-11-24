@@ -15,5 +15,8 @@
       "location": "https://artifacts.tools.arm.com/vcpkg-registry",
       "name": "arm"
     }
+  ],
+  "overlay-ports": [
+    "./sfdi-port"
   ]
 }
