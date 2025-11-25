@@ -193,7 +193,7 @@ void SFDI::model_SFDI::mc_model_for_SFDI(const Optical_prop mua, const Optical_p
 void SFDI::model_SFDI::mc_model_for_SFDI(const double mua,
                                          const double musp,
                                          const int wave_index,
-                                         Reflect_freq &dst)//单波长版本
+                                         Reflect_freq &dst) // 单波长版本
 {
     if (wave_index < 0 || wave_index >= WAVELENGTH_NUM)
     {
