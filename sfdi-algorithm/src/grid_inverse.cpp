@@ -1,7 +1,6 @@
 #include "grid_inverse.hpp"
 #include <nlopt.hpp>
 #include <fstream>
-#include <limits>
 #include <iostream>
 
 using namespace SFDI;

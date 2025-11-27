@@ -1,33 +1,15 @@
 cmake_minimum_required(VERSION 3.10.0)
 project(sfdi VERSION 0.1.0 LANGUAGES C CXX)
+add_executable(sfdi ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp)
 
-# 把src目录下所有.cpp文件收集起来
-file(GLOB_RECURSE SRC_FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/sfdi-algorithm/src/*.cpp
+target_precompile_headers(
+    sfdi PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}/pch.h
 )
-
-# 添加可执行文件，包含main.cpp和src目录下的所有源文件
-add_executable(sfdi ${SRC_FILES} ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp)
-
-find_package(Eigen3 CONFIG REQUIRED)
-find_package(OpenBLAS CONFIG REQUIRED)
-find_package(OpenMP REQUIRED)
-find_package(NLopt REQUIRED)
-find_package(TIFF REQUIRED)
-target_include_directories(sfdi PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/sfdi-algorithm/inc
-    ${CMAKE_CURRENT_SOURCE_DIR}/hardware/inc
-)
-
-target_link_libraries(sfdi PRIVATE 
-    Eigen3::Eigen
-    OpenBLAS::OpenBLAS 
-    OpenMP::OpenMP_CXX
-    NLopt::nlopt
-    TIFF::TIFF
-)
-target_link_libraries(sfdi PRIVATE MV_CAM::MVSDK)
-target_compile_options(sfdi PRIVATE -O3 -ffast-math -funroll-loops -flto )
+target_link_libraries(sfdi PRIVATE sfdiAlgorithm)
+target_link_libraries(sfdi PRIVATE MVSDK)
+target_compile_options(sfdi PRIVATE -ffast-math -funroll-loops -flto)
 target_link_libraries(sfdi PRIVATE -fopenmp -flto)
-
-include(CPack)
+add_dependencies(sfdi sfdiAlgorithm MVSDK)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/hardware)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/sfdi-algorithm)

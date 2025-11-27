@@ -1,0 +1,11 @@
+#pragma once
+#define EIGEN_USE_BLAS
+#define EIGEN_USE_LAPACK
+#include <iostream>
+#include <Eigen/Dense>
+#include <string>
+#include <vector>
+#include <memory>
+#include <mutex>
+#include <unsupported/Eigen/CXX11/Tensor>
+#include <unsupported/Eigen/SpecialFunctions>

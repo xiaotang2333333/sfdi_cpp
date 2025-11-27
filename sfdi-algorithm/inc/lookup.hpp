@@ -1,6 +1,5 @@
 #ifndef LOOKUP_HPP
 #define LOOKUP_HPP
-#include <memory>
 #include <vector>
 #include "model_SFDI.hpp"
 
