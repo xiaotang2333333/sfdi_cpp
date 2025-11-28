@@ -1,12 +1,10 @@
 #pragma once
-#ifndef MAINWINDOWS_H
-#define MAINWINDOWS_H
+#ifndef MAINWINDOW_H
+#define MAINWINDOW_H
 
 #include <QtWidgets/QMainWindow>
-namespace Ui {
-class MainWindow;
-}
-
+#include "CameraApi.h"
+namespace Ui { class MainWindow; }
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -17,6 +15,10 @@ public:
 
 private:
     Ui::MainWindow *ui;
+    CameraHandle hCamera = -1;
+private slots:
+    void on_scanCamBtn_clicked();
+    void on_controlCamBtn_clicked();
 };
 
-#endif // MAINWINDOWS_H
+#endif // MAINWINDOW_H

@@ -288,7 +288,7 @@ MVSDK_API CameraSdkStatus CameraImageProcessEx(
 /******************************************************/
 MVSDK_API CameraSdkStatus  CameraDisplayInit(
         CameraHandle    hCamera,
-        HWND            hWndDisplay
+        HWND_CAMSDK            hWndDisplay
 );
 
 /******************************************************/
@@ -2860,7 +2860,7 @@ MVSDK_API CameraSdkStatus  CameraCustomizeResolution(
 MVSDK_API CameraSdkStatus  CameraCustomizeReferWin(
         CameraHandle    hCamera,
         INT             iWinType,
-        HWND            hParent,
+        HWND_CAMSDK     hParent,
         INT*            piHOff,
         INT*            piVOff,
         INT*            piWidth,
@@ -2908,7 +2908,7 @@ MVSDK_API CameraSdkStatus  CameraShowSettingPage(
 /******************************************************/
 MVSDK_API CameraSdkStatus  CameraCreateSettingPage(
         CameraHandle            hCamera,
-        HWND                    hParent,
+        HWND_CAMSDK             hParent,
         char*                   pWinText,
         CAMERA_PAGE_MSG_PROC    pCallbackFunc,
         PVOID                   pCallbackCtx,
@@ -4892,7 +4892,7 @@ MVSDK_API CameraSdkStatus CameraGetUndistortEnable(
 /// \return Returns CAMERA_STATUS_SUCCESS(0) successfully. Otherwise, it returns a non-zero error code. Please refer to the definition of the error code in CameraStatus.h.
 MVSDK_API CameraSdkStatus CameraCustomizeUndistort(
         CameraHandle	hCamera,
-        HWND			hParent
+        HWND_CAMSDK			hParent
 );
 
 /// @ingroup API_ENHANCE

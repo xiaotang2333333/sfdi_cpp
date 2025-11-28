@@ -16,11 +16,11 @@ typedef int BOOL;
 typedef unsigned char BYTE;
 typedef unsigned int DWORD;
 typedef void* PVOID;
-typedef void* HWND;
+typedef void* HWND_CAMSDK;
 typedef char* LPCTSTR;
 typedef unsigned short USHORT;
 typedef short SHORT;
- typedef unsigned char* LPBYTE;
+typedef unsigned char* LPBYTE;
 typedef char CHAR;
 typedef char TCHAR;
 typedef  unsigned short WORD;
@@ -29,7 +29,6 @@ typedef void VOID;
 typedef unsigned int ULONG;
 typedef void* LPVOID;
 typedef unsigned char UCHAR;
-typedef void* HMODULE;
 
 #define TRUE 1
 #define FALSE 0

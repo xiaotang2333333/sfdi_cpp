@@ -1,7 +1,7 @@
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets)
 
-qt_add_library(sfdiUI OBJECT 
-)
+qt_add_library(sfdiUI OBJECT)
+
 set_target_properties(sfdiUI PROPERTIES
     AUTOUIC_SEARCH_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/ui"
 )
@@ -12,7 +12,6 @@ target_sources(sfdiUI
     ${CMAKE_CURRENT_SOURCE_DIR}/inc/MainWindow.h
 )
 
-message(STATUS "AUTOUIC_SEARCH_PATHS: ${CMAKE_AUTOUIC_SEARCH_PATHS}")
 
 target_include_directories(sfdiUI
     PRIVATE
@@ -22,7 +21,8 @@ target_include_directories(sfdiUI
 )
 
 target_link_libraries(sfdiUI
-    PRIVATE
+    PUBLIC
         Qt6::Core
-        Qt6::Widgets  # UI 需要 Widgets
+        Qt6::Widgets
+        MVSDK
 )
