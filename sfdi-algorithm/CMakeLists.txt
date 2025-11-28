@@ -7,6 +7,7 @@ find_package(TIFF REQUIRED)
 target_sources(sfdiAlgorithm 
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src/grid_inverse.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/grid_forward.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/model_SFDI.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/lookup.cpp
     PUBLIC 
@@ -14,6 +15,7 @@ target_sources(sfdiAlgorithm
         BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/inc
         FILES 
             ${CMAKE_CURRENT_SOURCE_DIR}/inc/grid_inverse.hpp 
+            ${CMAKE_CURRENT_SOURCE_DIR}/inc/grid_forward.hpp
             ${CMAKE_CURRENT_SOURCE_DIR}/inc/model_SFDI.hpp 
             ${CMAKE_CURRENT_SOURCE_DIR}/inc/lookup.hpp
 )
