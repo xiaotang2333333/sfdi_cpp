@@ -1,5 +1,6 @@
 #include "CamControl.hpp"
 #include <iostream>
+#include <utility>
 namespace Hardware
 {
     void CamControl::GrabImageCallback(CameraHandle hCamera, BYTE *pBuffer, tSdkFrameHead *pFrameHead, PVOID pUser)
@@ -11,8 +12,23 @@ namespace Hardware
             self->GrabImageCallbackInstance(hCamera, pBuffer, pFrameHead);
         }
     }
-    CamControl::CamControl(CameraHandle cameraHandle) : hCamera(cameraHandle)
+    CamControl::CamControl()
     {
+        // 初始化成员变量
+        m_pFrameMat.resize(1520,2688,3);
+        m_pFrameMat.setZero(); // Example resolution, adjust as needed
+    }
+
+    void CamControl::setSdkCameraDevInfo(const tSdkCameraDevInfo &info)
+    {
+        cameraInstance = info;
+    }
+    void CamControl::CamStartGrab()
+    {
+        if (SDK_UNSUCCESS(CameraInit(&cameraInstance, -1, -1, &hCamera)))
+        {
+            throw std::runtime_error("Invalid camera instance provided to CamControl.");
+        }
         if (hCamera == -1)
         {
             throw std::runtime_error("Invalid camera handle provided to CamControl.");
@@ -21,31 +37,33 @@ namespace Hardware
         {
             throw std::runtime_error("Failed to initialize camera in CamControl.");
         }
-        m_pFrameMat.resize(2688, 1520);
-        m_pFrameMat.setZero(); // Example resolution, adjust as needed
-        m_pFrameBuffer = reinterpret_cast<BYTE *>(m_pFrameMat.data());
-        CameraSetCallbackFunction(hCamera, GrabImageCallback, (void *)this, nullptr);
+        if (SDK_UNSUCCESS(CameraSetCallbackFunction(hCamera, GrabImageCallback, (void *)this, nullptr)))
+        {
+            throw std::runtime_error("Failed to set Fallback");
+        }
     }
-
-    CamControl::~CamControl()
+    void CamControl::CamStopGrab()
     {
         if (hCamera != -1)
         {
             CameraUnInit(hCamera);
+            hCamera = -1;
         }
+    }
+    CamControl::~CamControl()
+    {
+        CamStopGrab();
     }
     void CamControl::GrabImageCallbackInstance(CameraHandle hCamera, BYTE *pFrameBuffer,
                                                tSdkFrameHead *pFrameHead)
     {
-
         if (SDK_UNSUCCESS(CameraImageProcess(hCamera, pFrameBuffer,
-                                             m_pFrameBuffer, pFrameHead)))
+                                             m_pFrameMat.data(), pFrameHead)))
         {
             std::cerr << "Image processing failed in GrabImageCallback." << std::endl;
             return;
         }
-        FrameArray frameCopy = m_pFrameMat;
-        emit imageGrabbed(frameCopy);
+        emit imageGrabbed(m_pFrameMat.eval());
         m_pFrameMat.setZero();
     }
 }

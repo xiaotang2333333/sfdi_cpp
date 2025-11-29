@@ -24,5 +24,5 @@ target_link_libraries(sfdiUI
     PUBLIC
         Qt6::Core
         Qt6::Widgets
-        MVSDK
+        Hardware
 )
