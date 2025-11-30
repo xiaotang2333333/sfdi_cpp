@@ -24,6 +24,3 @@ set(VCPKG_HOST_TRIPLET x64-linux)
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build" FORCE)
 endif()
-
-# Disable some tests that may not work in cross-compilation
-set(CMAKE_CROSSCOMPILING ON)
