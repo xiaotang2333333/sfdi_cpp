@@ -24,23 +24,23 @@ int main(int argc, char *argv[])
     }
 
     //初始化模型
-    //std::cout << "Loading model and building lookup table..." << std::endl;
-    //SFDI::model_SFDI model_comp("reference_670", "ROfRhoAndTime");
+    std::cout << "Loading model and building lookup table..." << std::endl;
+    SFDI::model_SFDI model_comp("reference_670", "ROfRhoAndTime");
 
-    //model_comp.setN(SFDI::Optical_prop().setConstant(1.4));
-    //model_comp.FreqTest(0, 0.3, 31);
-    //model_comp.setFrequency((SFDI::Freq() << 0.0, 0.2).finished());
-    //model_comp.setN(SFDI::Optical_prop().setConstant(1.37));
+    // model_comp.setN(SFDI::Optical_prop().setConstant(1.4));
+    // model_comp.FreqTest(0, 0.3, 31);
+    model_comp.setFrequency((SFDI::Freq() << 0.0, 0.1).finished());
+    model_comp.setN(SFDI::Optical_prop().setConstant(1.33));
 #ifdef GENERATE_LOOKUP
-    for (int i = 1; i <= 3; i++)
-    {
-        double RAC_FREQ = 0.1 * i;
+    // for (int i = 1; i <= 3; i++)
+    // {
+        double RAC_FREQ = 0.1;
         model_comp.setFrequency((SFDI::Freq() << 0.0, RAC_FREQ).finished());
         std::cout << "Computing grid for RAC frequency " << RAC_FREQ << "..." << std::endl;
-        SFDI::GridForwardSolver grid_solver(model_comp, 1000, 1000, 1e-5, 1.5, 1e-5, 15.0);
-        std::string output_bin = "grid_forward_" + std::to_string(i) + ".bin";
+        SFDI::GridForwardSolver grid_solver(model_comp, 301, 270, 1e-5, 0.3+1e-5, 0.41, 3.1);
+        std::string output_bin = "grid_forward_" + std::to_string(1) + ".bin";
         grid_solver.compute_and_save(output_bin);
-    }
+    //}
 #endif
 #ifdef INVERSE_TEST
     //1. 初始化查找表

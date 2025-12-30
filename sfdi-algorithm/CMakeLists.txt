@@ -26,3 +26,4 @@ target_link_libraries(sfdiAlgorithm PUBLIC
     NLopt::nlopt
     TIFF::TIFF
 )
+target_compile_definitions(sfdiAlgorithm PRIVATE EIGEN_USE_BLAS EIGEN_USE_LAPACKE)

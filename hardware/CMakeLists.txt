@@ -1,13 +1,16 @@
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets)
 find_package(Eigen3 REQUIRED)
 qt_add_library(Hardware OBJECT)
-
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/MVcam)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/dlp)
 target_sources(Hardware
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/CamControl.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/inc/CamControl.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/DlpControl.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/inc/DlpControl.hpp
 )
-
+add_dependencies(Hardware MVSDK DLP_Driver)
 target_include_directories(Hardware
     PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/inc
@@ -20,6 +23,5 @@ target_link_libraries(Hardware
         Qt6::Widgets
         Eigen3::Eigen
         MVSDK
-
+        DLP_Driver
 )
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/MVcam)

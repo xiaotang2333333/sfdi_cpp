@@ -16,6 +16,9 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+    // Make the connect button checkable and ensure initial label
+    ui->pushButton_ConnectCam->setCheckable(true);
+    ui->pushButton_ConnectCam->setText("connect");
     // Start frame-interval timer
     m_prevFrameMs = -1;
     m_frameTimer.start();
@@ -27,6 +30,9 @@ MainWindow::MainWindow(QWidget *parent)
     {
         ui->statusbar->showMessage("Camera SDK initialized successfully.");
     }
+    connect(&m_dlpc3500, &Hardware::Dlpc3500::dlpcStatus, this, [this](bool isConnected) {
+        ui->checkBox_ProjectStatus->setChecked(isConnected);
+    });
 }
 
 MainWindow::~MainWindow()
@@ -41,9 +47,9 @@ MainWindow::~MainWindow()
     }
     delete ui;
 }
-void MainWindow::on_scanCamBtn_clicked()
+void MainWindow::on_pushButton_ScanCam_clicked()
 {
-    ui->scanCamBtn->setEnabled(false);
+    ui->pushButton_ScanCam->setEnabled(false);
 
     QString status;
     int ret;
@@ -61,21 +67,21 @@ void MainWindow::on_scanCamBtn_clicked()
         status = QString("Found %1 camera(s).").arg(cameraCount);
 
         // Only show camera friendly names in the selector (single-column)
-        ui->camSelector->clear();
+        ui->comboxBox_CamSelector->clear();
         for (INT i = 0; i < cameraCount; ++i)
         {
-            ui->camSelector->addItem(QString::fromLatin1(cameraList[i].acFriendlyName));
+            ui->comboxBox_CamSelector->addItem(QString::fromLatin1(cameraList[i].acFriendlyName));
         }
     }
     cameraCount = cameraList.size(); // sdk需要寻找完需要重置
     ui->statusbar->showMessage(status);
-    ui->scanCamBtn->setEnabled(true);
+    ui->pushButton_ScanCam->setEnabled(true);
 }
 
-void MainWindow::on_controlCamBtn_clicked()
+void MainWindow::on_pushButton_ConnectCam_toggled(bool checked)
 {
-    ui->controlCamBtn->setEnabled(false);
-    int index = ui->camSelector->currentIndex();
+    ui->pushButton_ConnectCam->setEnabled(false);
+    int index = ui->comboxBox_CamSelector->currentIndex();
     if (index < 0 || index >= cameraCount)
     {
         ui->statusbar->showMessage("Please select a valid camera.");
@@ -88,7 +94,7 @@ void MainWindow::on_controlCamBtn_clicked()
         }
         else
         {
-            if (ui->controlCamBtn->text() == "connect")
+            if (checked)
             {
                 // Start CamControl in a worker thread
                 if (m_camThread)
@@ -106,7 +112,7 @@ void MainWindow::on_controlCamBtn_clicked()
 
                     m_camThread->start();
 
-                    ui->controlCamBtn->setText("disconnect");
+                    ui->pushButton_ConnectCam->setText("disconnect");
                     ui->statusbar->showMessage("Camera connected (CamControl thread started).");
                 }
             }
@@ -120,12 +126,12 @@ void MainWindow::on_controlCamBtn_clicked()
                     m_camThread->deleteLater();
                     m_camThread = nullptr;
                 }
-                ui->controlCamBtn->setText("connect");
+                ui->pushButton_ConnectCam->setText("connect");
                 ui->statusbar->showMessage("Camera disconnected (CamControl thread stopped).");
             }
         }
     }
-    ui->controlCamBtn->setEnabled(true);
+    ui->pushButton_ConnectCam->setEnabled(true);
 }
 
 void MainWindow::onImageGrabbed(const Hardware::CamFrameArray &frame)
@@ -167,13 +173,13 @@ void MainWindow::onImageGrabbed(const Hardware::CamFrameArray &frame)
     if (!m_camScene)
     {
         m_camScene = new QGraphicsScene(this);
-        ui->camView->setScene(m_camScene);
+        ui->graphicsView_CamView->setScene(m_camScene);
     }
     m_camScene->clear();
     QPixmap pix = QPixmap::fromImage(img);
     m_camScene->addPixmap(pix);
     // Fit the image in view while keeping aspect ratio
-    ui->camView->fitInView(m_camScene->itemsBoundingRect(), Qt::KeepAspectRatio);
+    ui->graphicsView_CamView->fitInView(m_camScene->itemsBoundingRect(), Qt::KeepAspectRatio);
 
     // Compute FPS as inverse of inter-frame interval (1 / delta_seconds)
     qint64 nowMs = m_frameTimer.elapsed();
@@ -191,4 +197,17 @@ void MainWindow::onImageGrabbed(const Hardware::CamFrameArray &frame)
                                   .arg(width)
                                   .arg(height)
                                   .arg(m_lastFps, 0, 'f', 2));
+}
+void MainWindow::on_pushButton_StopProject_clicked()
+{
+    // Placeholder for stopping projection functionality
+    ui->statusbar->showMessage("Projection stopped.");
+    m_dlpc3500.stopProject();
+}
+void MainWindow::on_pushButton_UpdateFreq_clicked()
+{
+    // Example frequency index; in a real application, this could come from user input
+    unsigned int freqIndex = 0; // Placeholder index
+    m_dlpc3500.updateFrequency(freqIndex);
+    ui->statusbar->showMessage("Projection frequency updated.");
 }

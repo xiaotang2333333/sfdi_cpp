@@ -7,6 +7,7 @@
 #include "CameraApi.h"
 #include <QThread>
 #include "CamControl.hpp"
+#include "DlpControl.hpp"
 class QGraphicsScene;
 class QGraphicsPixmapItem;
 namespace Ui { class MainWindow; }
@@ -19,8 +20,8 @@ public:
     ~MainWindow();
 
 private:
+    Hardware::Dlpc3500 m_dlpc3500;
     Ui::MainWindow *ui;
-    CameraHandle hCamera = -1;
     QThread *m_camThread = nullptr;
     Hardware::CamControl m_camControl;
     QGraphicsScene *m_camScene = nullptr;
@@ -29,8 +30,10 @@ private:
     qint64 m_prevFrameMs = -1;  // last frame timestamp in ms (elapsed from m_frameTimer.start())
     double m_lastFps = 0.0;
 private slots:
-    void on_scanCamBtn_clicked();
-    void on_controlCamBtn_clicked();
+    void on_pushButton_ScanCam_clicked();
+    void on_pushButton_ConnectCam_toggled(bool checked);
+    void on_pushButton_StopProject_clicked();
+    void on_pushButton_UpdateFreq_clicked();
     void onImageGrabbed(const Hardware::CamFrameArray &frame);
 };
 

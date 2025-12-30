@@ -19,7 +19,7 @@ namespace
                  sizeof(double) * (SFDI::TIME_BIN) * (SFDI::RHO_BIN));
         fin.close();
     }
-    constexpr double delta_t = 100.0 / SFDI::TIME_BIN, delta_rho = 100.0 / SFDI::RHO_BIN;
+    constexpr double delta_t = 50.0 / SFDI::TIME_BIN, delta_rho = 50.0 / SFDI::RHO_BIN;
     static const Eigen::ArrayXd time_var = Eigen::ArrayXd::LinSpaced(SFDI::TIME_BIN, delta_t / 2, delta_t *SFDI::TIME_BIN - delta_t / 2);
     static const Eigen::ArrayXd rho_var = Eigen::ArrayXd::LinSpaced(SFDI::RHO_BIN, delta_rho / 2, delta_rho *SFDI::RHO_BIN - delta_rho / 2);
 }
