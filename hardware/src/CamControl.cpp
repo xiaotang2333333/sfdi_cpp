@@ -3,67 +3,131 @@
 #include <utility>
 namespace Hardware
 {
-    void CamControl::GrabImageCallback(CameraHandle hCamera, BYTE *pBuffer, tSdkFrameHead *pFrameHead, PVOID pUser)
-    {
-        // 从 user 参数取回对象并转发
-        CamControl *self = static_cast<CamControl *>(pUser);
-        if (self)
-        {
-            self->GrabImageCallbackInstance(hCamera, pBuffer, pFrameHead);
-        }
-    }
     CamControl::CamControl()
     {
         // 初始化成员变量
-        m_pFrameMat.resize(1520,2688,3);
-        m_pFrameMat.setZero(); // Example resolution, adjust as needed
-    }
-
-    void CamControl::setSdkCameraDevInfo(const tSdkCameraDevInfo &info)
-    {
-        cameraInstance = info;
-    }
-    void CamControl::CamStartGrab()
-    {
-        if (SDK_UNSUCCESS(CameraInit(&cameraInstance, -1, -1, &hCamera)))
-        {
-            throw std::runtime_error("Invalid camera instance provided to CamControl.");
-        }
-        if (hCamera == -1)
-        {
-            throw std::runtime_error("Invalid camera handle provided to CamControl.");
-        }
-        if (SDK_UNSUCCESS(CameraPlay(hCamera)))
-        {
-            throw std::runtime_error("Failed to initialize camera in CamControl.");
-        }
-        if (SDK_UNSUCCESS(CameraSetCallbackFunction(hCamera, GrabImageCallback, (void *)this, nullptr)))
-        {
-            throw std::runtime_error("Failed to set Fallback");
-        }
-    }
-    void CamControl::CamStopGrab()
-    {
-        if (hCamera != -1)
-        {
-            CameraUnInit(hCamera);
-            hCamera = -1;
-        }
     }
     CamControl::~CamControl()
     {
-        CamStopGrab();
-    }
-    void CamControl::GrabImageCallbackInstance(CameraHandle hCamera, BYTE *pFrameBuffer,
-                                               tSdkFrameHead *pFrameHead)
-    {
-        if (SDK_UNSUCCESS(CameraImageProcess(hCamera, pFrameBuffer,
-                                             m_pFrameMat.data(), pFrameHead)))
+        // 关闭相机并释放资源
+        if (m_cameraHandle)
         {
-            std::cerr << "Image processing failed in GrabImageCallback." << std::endl;
-            return;
+            IMV_Close(m_cameraHandle);
+            IMV_DestroyHandle(m_cameraHandle);
+            m_cameraHandle = nullptr;
         }
-        emit imageGrabbed(m_pFrameMat.eval());
-        m_pFrameMat.setZero();
     }
-}
+    const IMV_DeviceList &CamControl::scanCameras()
+    {
+        IMV_EnumDevices(&m_deviceList, interfaceTypeUsb3);
+        return m_deviceList;
+    }
+    bool CamControl::connectCamera(int index)
+    {
+        if (index < 0 || index >= static_cast<int>(m_deviceList.nDevNum))
+        {
+            std::cerr << "Invalid camera index: " << index << std::endl;
+            return false;
+        }
+        // 创建相机句柄
+        int ret = IMV_CreateHandle(&m_cameraHandle, modeByIndex, reinterpret_cast<void *>(&index));
+        if (ret != IMV_OK)
+        {
+            std::cerr << "Failed to create camera handle. Error code: " << ret << std::endl;
+            return false;
+        }
+        // 打开相机
+        if (IMV_IsOpen(m_cameraHandle))
+        {
+            std::cout << "Camera is already open." << std::endl;
+        }
+        else
+        {
+            ret = IMV_Open(m_cameraHandle);
+            if (ret != IMV_OK)
+            {
+                CamControl::throwError("Failed to open camera.", ret);
+            }
+        }
+        uint64_t pixelFormat = 0;
+        if(IMV_GetEnumFeatureValue(m_cameraHandle, "PixelFormat", &pixelFormat) != IMV_OK)
+        {
+            CamControl::throwError("Failed to get PixelFormat.", ret);
+            return false;
+        }
+        else
+        {
+            if(pixelFormat != gvspPixelMono12)
+            {
+                std::cout<< "Change to Mono12 format." <<std::endl;
+                IMV_SetEnumFeatureValue(m_cameraHandle, "PixelFormat", gvspPixelMono12);
+            }
+        }
+        ret = IMV_AttachGrabbing(m_cameraHandle, callbackFrameReceived, this);
+        if (ret != IMV_OK)
+        {
+            CamControl::throwError("Failed to attach grabbing.", ret);
+            return false;
+        }
+        ret = IMV_StartGrabbing(m_cameraHandle);
+        if (ret != IMV_OK)
+        {
+            CamControl::throwError("Failed to start grabbing.", ret);
+            return false;
+        }
+        std::cout << "Camera connected successfully." << std::endl;
+        return true;
+    }
+    bool CamControl::disconnectCamera(int index)
+    {
+        safeReleaseCamera();
+        std::cout << "Camera disconnected successfully." << std::endl;
+        return true;
+    }
+    void CamControl::callbackFrameReceived(IMV_Frame *pFrame, void *pUser)
+    {
+        // 处理接收到的帧数据
+        CamControl *camControl = reinterpret_cast<CamControl *>(pUser);
+        if (camControl)
+        {
+            camControl->processFrame(pFrame);
+        }
+    }
+    void CamControl::processFrame(IMV_Frame *pFrame)
+    {
+        IMV_FrameInfo &frameInfo = pFrame->frameInfo;
+        IMV_CloneFrame(m_cameraHandle, pFrame, &m_currentFrame);
+        frameReceived(m_currentFrame);
+    }
+    void CamControl::setupCameraParameters(const IMV_Frame &firstFrame)
+    {
+        // Implementation for setting up camera parameters based on the first frame
+        unsigned int width = firstFrame.frameInfo.width;
+        unsigned int height = firstFrame.frameInfo.height;
+    }
+    void CamControl::throwError(const char* msg, const int errCode)
+    {
+        safeReleaseCamera();
+        throw std::runtime_error(std::string(msg) + " Error code: " + std::to_string(errCode));
+    }
+    void CamControl::safeReleaseCamera()
+    {
+        if (m_cameraHandle)
+        {
+            if(IMV_IsGrabbing(m_cameraHandle))
+            {
+                IMV_StopGrabbing(m_cameraHandle);
+            }
+            if (IMV_IsOpen(m_cameraHandle))
+            {
+                IMV_Close(m_cameraHandle);
+            }
+            IMV_DestroyHandle(m_cameraHandle);
+            m_cameraHandle = nullptr;
+        }
+        else
+        {
+            std::cout << "Camera handle is already null." << std::endl;
+        }
+    }
+};

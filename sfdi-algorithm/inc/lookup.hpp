@@ -1,5 +1,4 @@
-#ifndef LOOKUP_HPP
-#define LOOKUP_HPP
+#pragma once
 #include <vector>
 #include "model_SFDI.hpp"
 
@@ -21,4 +20,3 @@ namespace SFDI
         void query(const Reflect_wave_freq &measured, Optical_prop &mua_dst, Optical_prop &musp_dst)const;
     };
 }
-#endif // LOOKUP_HPP

@@ -1,5 +1,3 @@
-#define EIGEN_USE_BLAS
-#define EIGEN_USE_LAPACK
 #include "model_SFDI.hpp"
 #include "lookup.hpp"
 #include "grid_inverse.hpp"
@@ -8,7 +6,7 @@
 #include <omp.h>
 #include <chrono>
 #include <iostream>
-#include "MainWindow.h"
+#include "MainWindow.hpp"
 #include <QApplication>
 static SFDI::SFDI_Reflect output_AC, calibrated_reflectance;
 static SFDI::Optical_prop_map mua_map, musp_map;
@@ -16,7 +14,6 @@ static SFDI::Optical_prop_map rdc_map, rac_map; // 输出RDC和RAC
 
 int main(int argc, char *argv[])
 {
-    
 #pragma omp parallel
     {
 #pragma omp single
@@ -31,17 +28,26 @@ int main(int argc, char *argv[])
     // model_comp.FreqTest(0, 0.3, 31);
     model_comp.setFrequency((SFDI::Freq() << 0.0, 0.1).finished());
     model_comp.setN(SFDI::Optical_prop().setConstant(1.33));
+    
 #ifdef GENERATE_LOOKUP
-    // for (int i = 1; i <= 3; i++)
-    // {
+    for (int i = 1; i <= 1; i++)
+    {
         double RAC_FREQ = 0.1;
         model_comp.setFrequency((SFDI::Freq() << 0.0, RAC_FREQ).finished());
         std::cout << "Computing grid for RAC frequency " << RAC_FREQ << "..." << std::endl;
         SFDI::GridForwardSolver grid_solver(model_comp, 301, 270, 1e-5, 0.3+1e-5, 0.41, 3.1);
         std::string output_bin = "grid_forward_" + std::to_string(1) + ".bin";
         grid_solver.compute_and_save(output_bin);
-    //}
+    }
 #endif
+    double mua,musp;
+    while (std::cin>>mua>>musp)
+    {
+     
+        SFDI::Reflect_wave_freq ans;
+        model_comp.mc_model_for_SFDI(SFDI::Optical_prop().setConstant(mua),SFDI::Optical_prop().setConstant(musp),ans);
+        std::cout<<ans;
+    }
 #ifdef INVERSE_TEST
     //1. 初始化查找表
     SFDI::SFDI_Lookup lookup(1001, "output.bin");
@@ -169,7 +175,7 @@ int main(int argc, char *argv[])
         std::cout << "RAC saved to RAC.bin" << std::endl;
         std::cout << "All done!" << std::endl;
 #endif
-        // 启动 Qt 窗口以显示 UI
+        //启动 Qt 窗口以显示 UI
         QApplication app(argc, argv);
         MainWindow w;
         w.show();

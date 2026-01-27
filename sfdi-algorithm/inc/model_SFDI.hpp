@@ -1,5 +1,4 @@
-#ifndef MODEL_SFDI_HPP
-#define MODEL_SFDI_HPP
+#pragma once
 #include <string>
 #include <stdexcept>
 #include <Eigen/Dense>
@@ -15,8 +14,8 @@ namespace SFDI
     constexpr int IMG_HEIGHT = 512,
                   IMG_WIDTH = 672,
                   WAVELENGTH_NUM = 1,
-                  TIME_BIN = 2000,
-                  RHO_BIN = 500,
+                  TIME_BIN = 4000,
+                  RHO_BIN = 1000,
                   FREQ_NUM = 2;
     using Tiff_img = Eigen::Tensor<double, 3, Eigen::RowMajor>;
     using SFDI_data = Eigen::TensorFixedSize<
@@ -57,8 +56,7 @@ namespace SFDI
         {
             R_rho.resize(wave_num, rho_bin);
             term_noj.resize(wave_num, rho_bin);
-        }
-    };
+        }    };
     class model_SFDI
     {
     private:
@@ -92,5 +90,3 @@ namespace SFDI
         void FreqTest(double start, double end, int num_points);
     };
 }
-
-#endif

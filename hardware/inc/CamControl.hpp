@@ -1,37 +1,32 @@
 #pragma once
-#ifndef CAMCONTROL_HPP
-#define CAMCONTROL_HPP
 #include <QtCore/QObject>
 #include <unsupported/Eigen/CXX11/Tensor>
-#include "CameraApi.h"
-
+#include "IMVApi.h"
 namespace Hardware
 {
-    // Frame stored as a 3D tensor: [height, width, channels]
-    using CamFrameArray = Eigen::Tensor<BYTE, 3>;
+    // Frame stored as a Array: [height, width]
     class CamControl : public QObject
     {
         Q_OBJECT
     signals:
         // Pass FrameArray by value so the signal/slot system can own a copy safely.
-        void imageGrabbed(CamFrameArray frame);
+        void frameReceived(IMV_Frame frame);
 
     private:
-        CameraHandle hCamera = -1;
-        tSdkCameraDevInfo cameraInstance;
-        CamFrameArray m_pFrameMat;
-        static void GrabImageCallback(CameraHandle hCamera, BYTE *pFrameBuffer,
-                                      tSdkFrameHead *pFrameHead, PVOID pContext);
-        void GrabImageCallbackInstance(CameraHandle hCamera, BYTE *pFrameBuffer,
-                                       tSdkFrameHead *pFrameHead);
+        void safeReleaseCamera();
+        void throwError(const char *msg,const int errCode);
+        IMV_DeviceList m_deviceList;
+        IMV_HANDLE m_cameraHandle = nullptr;
+        static void callbackFrameReceived(IMV_Frame *pFrame, void *pUser);
+        void processFrame(IMV_Frame *pFrame);
+        void setupCameraParameters(const IMV_Frame &firstFrame);
+        IMV_Frame m_currentFrame;
 
     public:
         CamControl();
         ~CamControl();
-        void CamStartGrab();
-        void CamStopGrab();
-        // Set camera instance info before starting grab (call from GUI thread before thread starts)
-        void setSdkCameraDevInfo(const tSdkCameraDevInfo &info);
+        const IMV_DeviceList &scanCameras();
+        bool connectCamera(int index);
+        bool disconnectCamera(int index);
     };
 };
-#endif // CAMCONTROL_HPP

@@ -12,12 +12,13 @@ target_link_libraries(sfdi PRIVATE Hardware)
 target_link_libraries(sfdi PRIVATE sfdiUI)
 
 target_compile_options(sfdi PRIVATE -ffast-math -funroll-loops -flto)
+#target_compile_definitions(sfdi PRIVATE GENERATE_LOOKUP)
 target_link_libraries(sfdi PRIVATE -fopenmp -flto)
 add_dependencies(sfdi sfdiAlgorithm Hardware sfdiUI)
 # 生成qt.conf文件以指定插件路径
 set(QT_CONF_DIR "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/Qt6/plugins")
 
-file(GENERATE 
+file(GENERATE
     OUTPUT "$<TARGET_FILE_DIR:sfdi>/qt.conf"
     CONTENT "[Paths]\nPlugins=${QT_CONF_DIR}"
 )

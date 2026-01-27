@@ -3,7 +3,6 @@
 SFDI::GridForwardSolver::GridForwardSolver(SFDI::model_SFDI &model, int mua_n, int musp_n, double mua_min, double mua_max, double musp_min, double musp_max)
     : model(model), mua_n(mua_n), musp_n(musp_n), mua_min(mua_min), mua_max(mua_max), musp_min(musp_min), musp_max(musp_max)
 {
-    grid_results.reserve(mua_n * musp_n);
     build_grid();
 }
 void SFDI::GridForwardSolver::build_grid()
@@ -28,9 +27,7 @@ void SFDI::GridForwardSolver::build_grid()
         SFDI::Optical_prop mua_prop = SFDI::Optical_prop::Constant(mua);
         SFDI::Optical_prop musp_prop = SFDI::Optical_prop::Constant(musp);
         model.mc_model_for_SFDI(mua_prop, musp_prop, reflect);
-        SFDI::Optical_prop mua_array = SFDI::Optical_prop::Constant(mua);
-        SFDI::Optical_prop musp_array = SFDI::Optical_prop::Constant(musp);
-        grid_results[k] = {mua_array, musp_array, reflect};
+        grid_results[k] = {mua_prop, musp_prop, reflect};
     }
 }
 void SFDI::GridForwardSolver::compute_and_save(const std::string &output_bin)
@@ -43,6 +40,10 @@ void SFDI::GridForwardSolver::compute_and_save(const std::string &output_bin)
 
     for (const auto &result : grid_results)
     {
+        if((result.model(0,1)<0.01||result.model(0,0)<0.01)||result.model(0,1)>1.0||result.model(0,0)>1.0)
+        {
+            std::cout<<"Warning: FALSE reflectance at mua="<<result.mua(0)<<", musp="<<result.musp(0)<<" RDC="<<result.model(0,0)<<", RAC="<<result.model(0,1)<<std::endl;
+        }
         ofs.write(reinterpret_cast<const char *>(result.mua.data()), sizeof(double) * result.mua.size());
         ofs.write(reinterpret_cast<const char *>(result.musp.data()), sizeof(double) * result.musp.size());
         ofs.write(reinterpret_cast<const char *>(result.model.data()), sizeof(double) * result.model.size());

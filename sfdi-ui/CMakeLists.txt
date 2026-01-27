@@ -9,7 +9,7 @@ target_sources(sfdiUI
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/MainWindow.ui
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MainWindow.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/inc/MainWindow.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/inc/MainWindow.hpp
 )
 
 

@@ -1,6 +1,4 @@
 #pragma once
-#ifndef DLPCONTROL_HPP
-#define DLPCONTROL_HPP
 #include <QtCore/QObject>
 #include <QTimer>
 #include <memory>
@@ -24,4 +22,3 @@ signals:
     void dlpcStatus(bool isConnected);
 };
 };
-#endif // DLPCONTROL_HPP
