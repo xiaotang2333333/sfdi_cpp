@@ -138,6 +138,16 @@
         </widget>
        </item>
        <item>
+        <widget class="QLabel" name="label_CamGain">
+         <property name="text">
+          <string>Gain</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QDoubleSpinBox" name="doubleSpinBox_CamGain"/>
+       </item>
+       <item>
         <spacer name="horizontalSpacer">
          <property name="orientation">
           <enum>Qt::Orientation::Horizontal</enum>
