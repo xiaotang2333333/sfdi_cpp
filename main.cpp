@@ -21,13 +21,13 @@ int main(int argc, char *argv[])
     }
 
     //初始化模型
-    std::cout << "Loading model and building lookup table..." << std::endl;
-    SFDI::model_SFDI model_comp("reference_670", "ROfRhoAndTime");
+    // std::cout << "Loading model and building lookup table..." << std::endl;
+    // SFDI::model_SFDI model_comp("reference_670", "ROfRhoAndTime");
 
-    // model_comp.setN(SFDI::Optical_prop().setConstant(1.4));
-    // model_comp.FreqTest(0, 0.3, 31);
-    model_comp.setFrequency((SFDI::Freq() << 0.0, 0.1).finished());
-    model_comp.setN(SFDI::Optical_prop().setConstant(1.33));
+    // // model_comp.setN(SFDI::Optical_prop().setConstant(1.4));
+    // // model_comp.FreqTest(0, 0.3, 31);
+    // model_comp.setFrequency((SFDI::Freq() << 0.0, 0.1).finished());
+    // model_comp.setN(SFDI::Optical_prop().setConstant(1.33));
     
 #ifdef GENERATE_LOOKUP
     for (int i = 1; i <= 1; i++)
@@ -40,14 +40,14 @@ int main(int argc, char *argv[])
         grid_solver.compute_and_save(output_bin);
     }
 #endif
-    double mua,musp;
-    while (std::cin>>mua>>musp)
-    {
-     
-        SFDI::Reflect_wave_freq ans;
-        model_comp.mc_model_for_SFDI(SFDI::Optical_prop().setConstant(mua),SFDI::Optical_prop().setConstant(musp),ans);
-        std::cout<<ans;
-    }
+    //  double mua,musp;
+    //  while (std::cin>>mua>>musp)
+    //  {
+      
+         // SFDI::Reflect_wave_freq ans;
+         // model_comp.mc_model_for_SFDI(SFDI::Optical_prop().setConstant(mua),SFDI::Optical_prop().setConstant(musp),ans);
+         // std::cout<<ans;
+    //  }
 #ifdef INVERSE_TEST
     //1. 初始化查找表
     SFDI::SFDI_Lookup lookup(1001, "output.bin");

@@ -7,9 +7,21 @@
       "default-features": false
     },
     {
-      "name":"qtbase",
+      "name": "qtbase",
+      "host": false,
       "default-features": false,
-      "features": ["concurrent","gui","widgets","thread"]
+      "features": [
+        "gui",
+        "widgets",
+        "xcb",
+        "fontconfig"
+      ],
+      "platform": "linux & arm64"
+    },
+    {
+      "name": "qtbase",
+      "default-features": false,
+      "host": true
     },  
     "nlopt",
     "hidapi"
