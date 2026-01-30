@@ -14,6 +14,8 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
+signals:
+    void isCamConnected(bool connected);
 
 private:
     Hardware::Dlpc3500 m_dlpc3500;
@@ -25,10 +27,12 @@ private:
     QElapsedTimer m_frameTimer; // monotonic timer for inter-frame timing
     qint64 m_prevFrameMs = -1;  // last frame timestamp in ms (elapsed from m_frameTimer.start())
     double m_lastFps = 0.0;
+    void setIsCamConnected(bool connected);
 private slots:
     void on_pushButton_ScanCam_clicked();
     void on_pushButton_ConnectCam_toggled(bool checked);
     void on_pushButton_StopProject_clicked();
     void on_pushButton_UpdateFreq_clicked();
+    void on_doubleSpinBox_CamExposeTime_editingFinished();
     void onImageGrabbed(IMV_Frame frame);
 };

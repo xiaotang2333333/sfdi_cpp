@@ -17,6 +17,23 @@ MainWindow::MainWindow(QWidget *parent)
     m_frameTimer.start();
     connect(&m_dlpc3500, &Hardware::Dlpc3500::dlpcStatus, this, [this](bool isConnected)
             { ui->checkBox_ProjectStatus->setChecked(isConnected); });
+    connect(this, &MainWindow::isCamConnected, ui->doubleSpinBox_CamExposeTime, [this](bool connected)
+            { 
+                ui->doubleSpinBox_CamExposeTime->setEnabled(connected); 
+                if(connected)
+                {
+                    double minVal, maxVal;
+                    std::tie(maxVal, minVal) = m_camControl.getCameraDoubleParametersMaxAndMin("ExposureTime");
+                    ui->doubleSpinBox_CamExposeTime->setMinimum(minVal);
+                    ui->doubleSpinBox_CamExposeTime->setMaximum(maxVal);
+                }
+            });
+    connect(this, &MainWindow::isCamConnected, ui->doubleSpinBox_CamGain, [this](bool connected)
+            { ui->doubleSpinBox_CamGain->setEnabled(connected); });
+    connect(this, &MainWindow::isCamConnected, ui->checkBox_AutoExpose, [this](bool connected)
+            { ui->checkBox_AutoExpose->setEnabled(connected); });
+    connect(this, &MainWindow::isCamConnected, ui->checkBox_AutoGain, [this](bool connected)
+            { ui->checkBox_AutoGain->setEnabled(connected); });
 }
 
 MainWindow::~MainWindow()
@@ -58,7 +75,6 @@ void MainWindow::on_pushButton_ScanCam_clicked()
     ui->statusbar->showMessage(status);
     ui->pushButton_ScanCam->setEnabled(true);
 }
-
 void MainWindow::on_pushButton_ConnectCam_toggled(bool checked)
 {
     ui->pushButton_ConnectCam->setEnabled(false);
@@ -82,12 +98,13 @@ void MainWindow::on_pushButton_ConnectCam_toggled(bool checked)
                 m_camControl.moveToThread(m_camThread);
                 connect(&m_camControl, &Hardware::CamControl::frameReceived, this, &MainWindow::onImageGrabbed);
                 connect(m_camThread, &QThread::started, this, [this, index]()
-                        { m_camControl.connectCamera(index); });
+                        { m_camControl.connectCamera(index); 
+                            setIsCamConnected(true); });
                 connect(m_camThread, &QThread::finished, &m_camControl, [this, index]()
-                        { m_camControl.disconnectCamera(index); });
+                        { m_camControl.disconnectCamera(index); 
+                            setIsCamConnected(false); });
 
                 m_camThread->start();
-
                 ui->pushButton_ConnectCam->setText("disconnect");
                 ui->statusbar->showMessage("Camera connected (CamControl thread started).");
             }
@@ -119,12 +136,12 @@ void MainWindow::onImageGrabbed(IMV_Frame frame)
         ui->statusbar->showMessage("Empty frame received.");
         return;
     }
-    
+
     // 12 to 16 bits per pixel grayscale image
-    for(int i = 0; i < width * height; ++i)
+    for (int i = 0; i < width * height; ++i)
     {
         // Shift 12-bit data to 16-bit by left-shifting 4 bits
-        reinterpret_cast<uint16_t*>(frame.pData)[i] = reinterpret_cast<uint16_t*>(frame.pData)[i] << 4;
+        reinterpret_cast<uint16_t *>(frame.pData)[i] = reinterpret_cast<uint16_t *>(frame.pData)[i] << 4;
     }
     QImage img(width, height, QImage::Format_Grayscale16);
     std::memcpy(img.bits(), frame.pData, frame.frameInfo.size);
@@ -169,4 +186,24 @@ void MainWindow::on_pushButton_UpdateFreq_clicked()
     unsigned int freqIndex = 0; // Placeholder index
     m_dlpc3500.updateFrequency(freqIndex);
     ui->statusbar->showMessage("Projection frequency updated.");
+}
+void MainWindow::setIsCamConnected(bool connected)
+{
+    emit isCamConnected(connected);
+}
+void MainWindow::on_doubleSpinBox_CamExposeTime_editingFinished()
+{
+    if (m_camThread)
+    {
+        double exposeTime = ui->doubleSpinBox_CamExposeTime->value();
+        try
+        {
+            m_camControl.setCameraDoubleParameters("ExposureTime", exposeTime);
+            ui->statusbar->showMessage(QString("Exposure time set to %1 us.").arg(exposeTime));
+        }
+        catch (const std::runtime_error &e)
+        {
+            ui->statusbar->showMessage(QString("Error setting exposure time: %1").arg(e.what()));
+        }
+    }
 }

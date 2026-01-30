@@ -130,4 +130,119 @@ namespace Hardware
             std::cout << "Camera handle is already null." << std::endl;
         }
     }
+    void CamControl::setCameraDoubleParameters(const char *pFeatureName, double value)
+    {
+        // Implementation for setting double parameters
+        if(!m_cameraHandle)
+        {
+            throw std::runtime_error("Camera is not connected.");
+        }
+        double maxVal, minVal;
+        try
+        {
+             std::tie(maxVal, minVal) = getCameraDoubleParametersMaxAndMin(pFeatureName);
+        }
+        catch(const std::exception& e)
+        {
+            std::cerr << e.what() << '\n';
+        }
+        if(value < minVal || value > maxVal)
+        {
+            throw std::runtime_error("Value out of range for feature: " + std::string(pFeatureName));
+        }
+        int ret = IMV_SetDoubleFeatureValue(m_cameraHandle, pFeatureName, value);
+        if(ret != IMV_OK)
+        {
+            throw std::runtime_error("Failed to set feature value for: " + std::string(pFeatureName));
+        }
+    }
+    void CamControl::setCameraIntParameters(const char *pFeatureName, int64_t value)
+    {
+        // Implementation for setting int parameters
+        if(!m_cameraHandle)
+        {
+            throw std::runtime_error("Camera is not connected.");
+        }
+        int64_t maxVal, minVal;
+        try
+        {
+             std::tie(maxVal, minVal) = getCameraIntParametersMaxAndMin(pFeatureName);
+        }
+        catch(const std::exception& e)
+        {
+            std::cerr << e.what() << '\n';
+        }
+        if(value < minVal || value > maxVal)
+        {
+            throw std::runtime_error("Value out of range for feature: " + std::string(pFeatureName));
+        }
+        int ret = IMV_SetIntFeatureValue(m_cameraHandle, pFeatureName, value);
+        if(ret != IMV_OK)
+        {
+            throw std::runtime_error("Failed to set feature value for: " + std::string(pFeatureName));
+        }
+    }
+    void CamControl::setCameraEnumParameters(const char *pFeatureName, uint64_t value)
+    {
+        // Implementation for setting enum parameters
+        if(!m_cameraHandle)
+        {
+            throw std::runtime_error("Camera is not connected.");
+        }
+        unsigned int enumCount = 0;
+        int ret = IMV_GetEnumFeatureEntryNum(m_cameraHandle, pFeatureName, &enumCount);
+        if(ret != IMV_OK)
+        {
+            throw std::runtime_error("Failed to get enum entry number for: " + std::string(pFeatureName));
+        }
+        else if (value >= enumCount)
+        {
+            throw std::runtime_error("Enum value out of range for feature: " + std::string(pFeatureName));
+        }        
+        ret = IMV_SetEnumFeatureValue(m_cameraHandle, pFeatureName, value);
+        if(ret != IMV_OK)
+        {
+            throw std::runtime_error("Failed to set enum feature value for: " + std::string(pFeatureName));
+        }
+    }
+    std::pair<double,double> CamControl::getCameraDoubleParametersMaxAndMin(const char *pFeatureName)
+    {
+        if(!m_cameraHandle)
+        {
+            throw std::runtime_error("Camera is not connected.");
+        }
+        double maxVal, minVal;
+        int ret;
+        ret=IMV_GetDoubleFeatureMax(m_cameraHandle, pFeatureName, &maxVal);
+        if(ret != IMV_OK)
+        {
+            throw std::runtime_error("Failed to get max value for feature: " + std::string(pFeatureName));
+        }
+        ret=IMV_GetDoubleFeatureMin(m_cameraHandle, pFeatureName, &minVal);
+        if(ret != IMV_OK)
+        {
+            throw std::runtime_error("Failed to get min value for feature: " + std::string(pFeatureName));
+        }
+        return std::make_pair(maxVal, minVal);
+    }
+    std::pair<int64_t,int64_t> CamControl::getCameraIntParametersMaxAndMin(const char *pFeatureName)
+    {
+        if(!m_cameraHandle)
+        {
+            throw std::runtime_error("Camera is not connected.");
+        }
+        int64_t maxVal, minVal;
+        int ret;
+        ret=IMV_GetIntFeatureMax(m_cameraHandle, pFeatureName, &maxVal);
+        if(ret != IMV_OK)
+        {
+            throw std::runtime_error("Failed to get max value for feature: " + std::string(pFeatureName));
+        }
+        ret=IMV_GetIntFeatureMin(m_cameraHandle, pFeatureName, &minVal);
+        if(ret != IMV_OK)
+        {
+            throw std::runtime_error("Failed to get min value for feature: " + std::string(pFeatureName));
+        }
+        return std::make_pair(maxVal, minVal);
+    }
 };

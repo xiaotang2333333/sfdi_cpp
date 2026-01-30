@@ -1,6 +1,5 @@
 #pragma once
 #include <QtCore/QObject>
-#include <unsupported/Eigen/CXX11/Tensor>
 #include "IMVApi.h"
 namespace Hardware
 {
@@ -28,5 +27,10 @@ namespace Hardware
         const IMV_DeviceList &scanCameras();
         bool connectCamera(int index);
         bool disconnectCamera(int index);
+        void setCameraDoubleParameters(const char *pFeatureName, double value);
+        void setCameraIntParameters(const char *pFeatureName, int64_t value);
+        void setCameraEnumParameters(const char *pFeatureName, uint64_t value);
+        std::pair<double,double> getCameraDoubleParametersMaxAndMin(const char *pFeatureName);
+        std::pair<int64_t,int64_t> getCameraIntParametersMaxAndMin(const char *pFeatureName);
     };
 };

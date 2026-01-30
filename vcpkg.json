@@ -21,7 +21,18 @@
     {
       "name": "qtbase",
       "default-features": false,
-      "host": true
+      "host": true,
+      "platform": "linux & arm64"
+    },
+    {
+      "name" : "qtbase",
+      "default-features": false,
+      "features": [
+        "gui",
+        "widgets",
+        "concurrent"
+      ],
+      "platform": "mingw"
     },  
     "nlopt",
     "hidapi"
