@@ -1,6 +1,12 @@
 {
   "dependencies": [
-    "openblas",
+    {
+      "name":"openblas",
+      "default-features": false,
+      "features": [
+        "openmp"
+      ]
+    },
     "eigen3",
     {
       "name": "tiff",
@@ -25,16 +31,20 @@
       "platform": "linux & arm64"
     },
     {
-      "name" : "qtbase",
+      "name": "qtbase",
       "default-features": false,
       "features": [
         "gui",
-        "widgets",
-        "concurrent"
+        "widgets"      
       ],
       "platform": "mingw"
-    },  
+    },
     "nlopt",
     "hidapi"
-  ]
+  ],
+  "configuration": {
+    "overlay-ports": [
+      "./test-port"
+    ]
+  }
 }

@@ -6,10 +6,15 @@
 using namespace SFDI;
 namespace
 {
-    constexpr double mua_min = 1e-5, mua_max = 5.0, musp_min = 1e-5, musp_max = 25.0;
+    constexpr double mua_min = 1e-5, mua_max = 5, musp_min = 1e-5, musp_max = 25;
+    struct Ctx
+    {
+        const mc_model *model;
+        SFDI::Reflect_wave_freq target;
+    };
 }
-GridInverseSolver::GridInverseSolver(model_SFDI &model_, int rdc_n_, int rac_n_, double rdc_min_, double rdc_max_, double rac_min_, double rac_max_)
-    : model(model_), rdc_n(rdc_n_), rac_n(rac_n_), rdc_min(rdc_min_), rdc_max(rdc_max_), rac_min(rac_min_), rac_max(rac_max_)
+GridInverseSolver::GridInverseSolver(int rdc_n_, int rac_n_, double rdc_min_, double rdc_max_, double rac_min_, double rac_max_)
+    : rdc_n(rdc_n_), rac_n(rac_n_), rdc_min(rdc_min_), rdc_max(rdc_max_), rac_min(rac_min_), rac_max(rac_max_)
 {
     build_grid();
 }
@@ -29,7 +34,7 @@ void GridInverseSolver::build_grid()
             // 仅保留 RDC > RAC 的组合（结构光中 RAC 必然小于 RDC）
             if (rdc > rac)
             {
-                Reflect_freq reflect = Reflect_freq::Zero();
+                Reflect_wave_freq reflect = Reflect_wave_freq::Zero();
                 for (int c = 0; c < W; ++c)
                 {
                     reflect(c, 0) = rdc;
@@ -43,11 +48,11 @@ void GridInverseSolver::build_grid()
     }
 }
 
-void GridInverseSolver::solve(const Reflect_freq &target, Optical_prop &dst_mua, Optical_prop &dst_musp) const
+void GridInverseSolver::solve(const SFDI::mc_model &model, const Reflect_wave_freq &target, Optical_prop &dst_mua, Optical_prop &dst_musp) const
 {
     constexpr int W = SFDI::WAVELENGTH_NUM;
     constexpr int F = SFDI::FREQ_NUM;
-    int n_params = F * W;
+    int n_params = 2 * W; // mua 和 musp 每个波长各一个
     std::vector<double> lb(n_params), ub(n_params), x0(n_params);
     for (int c = 0; c < W; ++c)
     {
@@ -55,18 +60,14 @@ void GridInverseSolver::solve(const Reflect_freq &target, Optical_prop &dst_mua,
         ub[2 * c] = mua_max;
         lb[2 * c + 1] = musp_min;
         ub[2 * c + 1] = musp_max;
-        x0[2 * c] = 1.0;
-        x0[2 * c + 1] = 5.0;
+        x0[2 * c] = 0.1;
+        x0[2 * c + 1] = 2.0;
     }
-    nlopt::opt opt(nlopt::LN_BOBYQA, n_params);
+    nlopt::opt opt(nlopt::LD_LBFGS, n_params);
     opt.set_lower_bounds(lb);
     opt.set_upper_bounds(ub);
     opt.set_xtol_rel(1e-6);
-    struct Ctx
-    {
-        model_SFDI *model;
-        SFDI::Reflect_freq target;
-    } ctx = {&model, target.replicate(1, F).eval()};
+    Ctx ctx = {&model, target};
     opt.set_min_objective(
         [](const std::vector<double> &x, std::vector<double> &grad, void *data) -> double
         {
@@ -82,88 +83,33 @@ void GridInverseSolver::solve(const Reflect_freq &target, Optical_prop &dst_mua,
             }
 
             // 基准前向
-            SFDI::Reflect_freq pred;
+            SFDI::Reflect_wave_freq pred;
             ctx->model->mc_model_for_SFDI(mua, musp, pred);
 
             Eigen::Array<double, W, F> residual = (pred - ctx->target).array();
             double loss = residual.square().sum();
-            
-            
+
             // 下面的梯度函数已经测试了，速度很慢
-        
             if (!grad.empty())
             {
-                grad.assign(2 * W, 0.0);
-
-                // 步长初值
-                SFDI::Optical_prop h_mua, h_musp;
+                SFDI::Reflect_wave_freq FDmua, FDmusp;
+                ctx->model->mc_model_for_SFDI_Dmua(mua, musp, FDmua);
+                ctx->model->mc_model_for_SFDI_Dmusp(mua, musp, FDmusp);
                 for (int c = 0; c < W; ++c)
                 {
-                    h_mua(c) = std::max(1e-4 * std::max(mua(c), mua_min), 1e-7);
-                    h_musp(c) = std::max(1e-4 * std::max(musp(c), musp_min), 1e-7);
-                }
-
-                // 构造全局扰动向量
-                SFDI::Optical_prop mua_plus = mua;
-                SFDI::Optical_prop mua_minus = mua;
-                SFDI::Optical_prop musp_plus = musp;
-                SFDI::Optical_prop musp_minus = musp;
-
-                // 实际步长（考虑边界裁剪）
-                SFDI::Optical_prop h_mua_plus, h_mua_minus;
-                SFDI::Optical_prop h_musp_plus, h_musp_minus;
-
-                for (int c = 0; c < W; ++c)
-                {
-                    double raw_hp = h_mua(c);
-                    double raw_hm = h_mua(c);
-                    mua_plus(c) = std::min(mua(c) + raw_hp, mua_max - 1e-8);
-                    mua_minus(c) = std::max(mua(c) - raw_hm, mua_min + 1e-8);
-                    h_mua_plus(c) = mua_plus(c) - mua(c);
-                    h_mua_minus(c) = mua(c) - mua_minus(c);
-
-                    raw_hp = h_musp(c);
-                    raw_hm = h_musp(c);
-                    musp_plus(c) = std::min(musp(c) + raw_hp, musp_max - 1e-8);
-                    musp_minus(c) = std::max(musp(c) - raw_hm, musp_min + 1e-8);
-                    h_musp_plus(c) = musp_plus(c) - musp(c);
-                    h_musp_minus(c) = musp(c) - musp_minus(c);
-                }
-
-                // 四次前向（同时扰动）
-                SFDI::Reflect_freq pred_mua_plus, pred_mua_minus;
-                SFDI::Reflect_freq pred_musp_plus, pred_musp_minus;
-                ctx->model->mc_model_for_SFDI(mua_plus, musp, pred_mua_plus);
-                ctx->model->mc_model_for_SFDI(mua_minus, musp, pred_mua_minus);
-                ctx->model->mc_model_for_SFDI(mua, musp_plus, pred_musp_plus);
-                ctx->model->mc_model_for_SFDI(mua, musp_minus, pred_musp_minus);
-
-                // 构造导数：中心差分 (不对称时自动使用真实步长和)
-                Eigen::Array<double, W, F> dpred_dmua;
-                Eigen::Array<double, W, F> dpred_dmusp;
-
-                for (int c = 0; c < W; ++c)
-                {
-                    double denom_mua = h_mua_plus(c) + h_mua_minus(c);
-                    double denom_musp = h_musp_plus(c) + h_musp_minus(c);
-
-                    // 行差分 (F 维)
-                    dpred_dmua.row(c) =
-                        (pred_mua_plus.row(c) - pred_mua_minus.row(c)).array() / std::max(denom_mua, 1e-12);
-
-                    dpred_dmusp.row(c) =
-                        (pred_musp_plus.row(c) - pred_musp_minus.row(c)).array() / std::max(denom_musp, 1e-12);
-                }
-
-                // 梯度装配
-                for (int c = 0; c < W; ++c)
-                {
-                    double g_mua = (2.0 * residual.row(c) * dpred_dmua.row(c)).sum();
-                    double g_musp = (2.0 * residual.row(c) * dpred_dmusp.row(c)).sum();
-                    grad[2 * c] = g_mua;
-                    grad[2 * c + 1] = g_musp;
+                    double dL_dmua = 0.0;
+                    double dL_dmusp = 0.0;
+                    for (int f = 0; f < F; ++f)
+                    {
+                        double r = pred(c, f) - ctx->target(c, f);
+                        dL_dmua += 2 * r * FDmua(c, f);
+                        dL_dmusp += 2 * r * FDmusp(c, f);
+                    }
+                    grad[2 * c] = dL_dmua;
+                    grad[2 * c + 1] = dL_dmusp;
                 }
             }
+
             return loss;
         },
         &ctx);
@@ -182,7 +128,6 @@ void GridInverseSolver::solve(const Reflect_freq &target, Optical_prop &dst_mua,
         dst_musp(c) = x0[2 * c + 1];
     }
 }
-
 void GridInverseSolver::solve_and_save(const std::string &output_bin)
 {
     std::ofstream fout(output_bin, std::ios::binary);
@@ -191,10 +136,12 @@ void GridInverseSolver::solve_and_save(const std::string &output_bin)
         std::cerr << "Failed to open output file: " << output_bin << std::endl;
         return;
     }
+    const int total = static_cast<int>(grid_results.size());
+    SFDI::mc_model model_comp;
 #pragma omp parallel for
-    for (size_t i = 0; i < grid_results.size(); ++i)
+    for (int i = 0; i < total; ++i)
     {
-        solve(grid_results[i].model, grid_results[i].mua, grid_results[i].musp);
+        solve(model_comp, grid_results[i].model, grid_results[i].mua, grid_results[i].musp);
     }
     for (const auto &item : grid_results)
     {

@@ -19,7 +19,6 @@ if(VCPKG_TARGET_TRIPLET STREQUAL "arm64-linux-dynamic")
         IMAGECONVERT
         IMAGESAVE
         TINYXML
-        LOG4CPP_DEP
     )
 
     # Ensure runtime can locate these vendor .so files.

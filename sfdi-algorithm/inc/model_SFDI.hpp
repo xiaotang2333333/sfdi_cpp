@@ -10,12 +10,11 @@
 namespace SFDI
 {
 
-
     constexpr int IMG_HEIGHT = 512,
                   IMG_WIDTH = 672,
                   WAVELENGTH_NUM = 1,
-                  TIME_BIN = 4000,
-                  RHO_BIN = 1000,
+                  TIME_BIN = 200,
+                  RHO_BIN = 200,
                   FREQ_NUM = 2;
     using Tiff_img = Eigen::Tensor<double, 3, Eigen::RowMajor>;
     using SFDI_data = Eigen::TensorFixedSize<
@@ -41,22 +40,13 @@ namespace SFDI
     using MC_data = Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic>;     // 固定大小二维数组(T,R)读取蒙特卡罗模拟结果
     struct SFDI_Result
     {
-        Optical_prop mua;         // 吸收系数
-        Optical_prop musp;        // 约化散射系数
-        SFDI::Reflect_freq model; // 计算结果 (WAVELENGTH_NUM × FREQ_NUM)
+        Optical_prop mua;              // 吸收系数
+        Optical_prop musp;             // 约化散射系数
+        SFDI::Reflect_wave_freq model; // 计算结果 (WAVELENGTH_NUM × FREQ_NUM)
     };
     extern Eigen::Map<const Reflect_wave_freq> AC2Model(const SFDI_Reflect &ac, int h, int w);
     extern void Compute_AC(const SFDI_data &input, const Int_time &int_time, SFDI_Reflect &output);
     extern Tiff_img open_tiff(const std::string &filename);
-    struct MC_Workspace
-    {
-        Eigen::ArrayXXd R_rho;
-        Eigen::ArrayXXd term_noj;
-        MC_Workspace(int wave_num, int rho_bin)
-        {
-            R_rho.resize(wave_num, rho_bin);
-            term_noj.resize(wave_num, rho_bin);
-        }    };
     class model_SFDI
     {
     private:
@@ -71,17 +61,16 @@ namespace SFDI
             Eigen::RowMajor>>
             Jterm_ptr; // (W,F,R)
         std::unique_ptr<Int_time> int_time_ptr;
-        std::vector<MC_Workspace> workspaces;
-        void init_workspace(void);
 
     public:
         model_SFDI(
             const std::string &ref_folder = "reference_670",
             const std::string &R_of_rho_time_mc_path = "ROfRhoAndTime");
         ~model_SFDI() = default;
-        void diff_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst);
-        void mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst);
-        void mc_model_for_SFDI(const double mua,const double musp, const int wave_index,Reflect_freq &dst);
+        void diff_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const;
+        void mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const;
+        void mc_model_for_SFDI_Dmua(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const;
+        void mc_model_for_SFDI_Dmusp(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const;
         void LoadAndComputeAC(const std::string &folder, SFDI_Reflect &output_ac);
         void R_compute(const SFDI_Reflect &input_ac, SFDI_Reflect &output_R);
         void setFrequency(const Freq &freq);
@@ -89,4 +78,25 @@ namespace SFDI
         void setIntTime(const Int_time &int_time);
         void FreqTest(double start, double end, int num_points);
     };
-}
+    class mc_model
+    {
+    private:
+        Optical_prop n, delta_t_div_fresnel, v;
+        Freq frequency;
+        std::unique_ptr<Eigen::TensorFixedSize<
+            double,
+            Eigen::Sizes<WAVELENGTH_NUM, FREQ_NUM, RHO_BIN>,
+            Eigen::RowMajor>>
+            Jterm_ptr; // (W,F,R)
+        Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic> v_t, twopi_rho_drho; //(W,R) 
+    public:
+        mc_model(
+            const std::string &R_of_rho_time_mc_path = "ROfRhoAndTime");
+        ~mc_model() = default;
+        void mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const;
+        void mc_model_for_SFDI_Dmua(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const;
+        void mc_model_for_SFDI_Dmusp(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const;
+        void setFrequency(const Freq &freq);
+        void setN(const Optical_prop &n);
+    };
+};
