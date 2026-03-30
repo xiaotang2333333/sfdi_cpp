@@ -39,9 +39,14 @@
       ],
       "platform": "mingw"
     },
-    "nlopt",
+    {
+      "name":"nlopt",
+      "features": [
+        "luksan"
+      ]
+    },
     "hidapi"
-  ],
+],
   "configuration": {
     "overlay-ports": [
       "./test-port"

@@ -8,26 +8,17 @@
 #include <iostream>
 #include "MainWindow.hpp"
 #include <QApplication>
-#include "cblas.h"
-static SFDI::SFDI_Reflect output_AC, calibrated_reflectance;
-static SFDI::Optical_prop_map mua_map, musp_map;
-static SFDI::Optical_prop_map rdc_map, rac_map; // 输出RDC和RAC
 #define GENERATE_LOOKUP
 int main(int argc, char *argv[])
 {
     // 初始化模型
-    std::cout << "Loading model and building lookup table..." << std::endl;
-    SFDI::model_SFDI model_comp("reference_670", "ROfRhoAndTime");
+//     std::cout << "Loading model and building lookup table..." << std::endl;
+//     SFDI::mc_model model_comp;
+// #ifdef GENERATE_LOOKUP
+//     SFDI::GridInverseSolver grid_solver(101, 101);
 
-    model_comp.setN(SFDI::Optical_prop().setConstant(1.4));
-    // model_comp.FreqTest(0, 0.3, 31);
-    model_comp.setFrequency((SFDI::Freq() << 0.0, 0.2).finished());
-#ifdef GENERATE_LOOKUP
-    SFDI::GridInverseSolver grid_solver(101, 101);
-
-    grid_solver.solve_and_save("test.bin");
-
-#endif
+//     grid_solver.solve_and_save("test.bin");
+//#endif
     // double mua,musp;
     // SFDI::mc_model model_mc;
     // while (std::cin>>mua>>musp)

@@ -6,11 +6,11 @@
 using namespace SFDI;
 namespace
 {
-    constexpr double mua_min = 1e-5, mua_max = 5, musp_min = 1e-5, musp_max = 25;
+    constexpr double mua_min = 1e-5, mua_max = 1, musp_min = 1e-5, musp_max = 5;
     struct Ctx
     {
         const mc_model *model;
-        SFDI::Reflect_wave_freq target;
+        SFDI::Reflect target;
     };
 }
 GridInverseSolver::GridInverseSolver(int rdc_n_, int rac_n_, double rdc_min_, double rdc_max_, double rac_min_, double rac_max_)
@@ -23,7 +23,6 @@ void GridInverseSolver::build_grid()
 {
     // 生成Reflect_wave_freq空间的均匀网格，所有波长都做RDC/RAC均匀网格
     grid_results.clear();
-    constexpr int W = SFDI::WAVELENGTH_NUM;
     constexpr int F = SFDI::FREQ_NUM;
     for (int i = 0; i < rdc_n; ++i)
     {
@@ -34,35 +33,26 @@ void GridInverseSolver::build_grid()
             // 仅保留 RDC > RAC 的组合（结构光中 RAC 必然小于 RDC）
             if (rdc > rac)
             {
-                Reflect_wave_freq reflect = Reflect_wave_freq::Zero();
-                for (int c = 0; c < W; ++c)
-                {
-                    reflect(c, 0) = rdc;
-                    reflect(c, 1) = rac;
-                }
-                Optical_prop mua = Optical_prop::Zero();
-                Optical_prop musp = Optical_prop::Zero();
-                grid_results.push_back({mua, musp, reflect});
+                Reflect reflect = Reflect::Zero();
+                reflect(0) = rdc;
+                reflect(1) = rac;
+                grid_results.push_back({0, 0, reflect});
             }
         }
     }
 }
 
-void GridInverseSolver::solve(const SFDI::mc_model &model, const Reflect_wave_freq &target, Optical_prop &dst_mua, Optical_prop &dst_musp) const
+void GridInverseSolver::solve(const SFDI::mc_model &model, const Reflect &target, double &dst_mua, double &dst_musp) const
 {
-    constexpr int W = SFDI::WAVELENGTH_NUM;
     constexpr int F = SFDI::FREQ_NUM;
-    int n_params = 2 * W; // mua 和 musp 每个波长各一个
+    int n_params = 2; // mua 和 musp 各一个参数
     std::vector<double> lb(n_params), ub(n_params), x0(n_params);
-    for (int c = 0; c < W; ++c)
-    {
-        lb[2 * c] = mua_min;
-        ub[2 * c] = mua_max;
-        lb[2 * c + 1] = musp_min;
-        ub[2 * c + 1] = musp_max;
-        x0[2 * c] = 0.1;
-        x0[2 * c + 1] = 2.0;
-    }
+    lb[0] = mua_min;
+    ub[0] = mua_max;
+    lb[1] = musp_min;
+    ub[1] = musp_max;
+    x0[0] = 0.1;
+    x0[1] = 2.0;
     nlopt::opt opt(nlopt::LD_LBFGS, n_params);
     opt.set_lower_bounds(lb);
     opt.set_upper_bounds(ub);
@@ -72,42 +62,33 @@ void GridInverseSolver::solve(const SFDI::mc_model &model, const Reflect_wave_fr
         [](const std::vector<double> &x, std::vector<double> &grad, void *data) -> double
         {
             auto *ctx = static_cast<Ctx *>(data);
-            constexpr int W = SFDI::WAVELENGTH_NUM;
             constexpr int F = SFDI::FREQ_NUM;
 
-            SFDI::Optical_prop mua, musp;
-            for (int c = 0; c < W; ++c)
-            {
-                mua(c) = x[2 * c];
-                musp(c) = x[2 * c + 1];
-            }
-
+            double mua, musp;
+            mua = x[0];
+            musp = x[1];
             // 基准前向
-            SFDI::Reflect_wave_freq pred;
+            SFDI::Reflect pred;
             ctx->model->mc_model_for_SFDI(mua, musp, pred);
 
-            Eigen::Array<double, W, F> residual = (pred - ctx->target).array();
+            SFDI::Reflect residual = (pred - ctx->target).array();
             double loss = residual.square().sum();
 
-            // 下面的梯度函数已经测试了，速度很慢
             if (!grad.empty())
             {
-                SFDI::Reflect_wave_freq FDmua, FDmusp;
+                SFDI::Reflect FDmua, FDmusp;
                 ctx->model->mc_model_for_SFDI_Dmua(mua, musp, FDmua);
                 ctx->model->mc_model_for_SFDI_Dmusp(mua, musp, FDmusp);
-                for (int c = 0; c < W; ++c)
+                double dL_dmua = 0.0;
+                double dL_dmusp = 0.0;
+                for (int f = 0; f < F; ++f)
                 {
-                    double dL_dmua = 0.0;
-                    double dL_dmusp = 0.0;
-                    for (int f = 0; f < F; ++f)
-                    {
-                        double r = pred(c, f) - ctx->target(c, f);
-                        dL_dmua += 2 * r * FDmua(c, f);
-                        dL_dmusp += 2 * r * FDmusp(c, f);
-                    }
-                    grad[2 * c] = dL_dmua;
-                    grad[2 * c + 1] = dL_dmusp;
+                    double r = pred(f) - ctx->target(f);
+                    dL_dmua += 2 * r * FDmua(f);
+                    dL_dmusp += 2 * r * FDmusp(f);
                 }
+                grad[0] = dL_dmua;
+                grad[1] = dL_dmusp;
             }
 
             return loss;
@@ -122,11 +103,8 @@ void GridInverseSolver::solve(const SFDI::mc_model &model, const Reflect_wave_fr
     {
         std::cerr << "NLOPT failed: " << e.what() << std::endl;
     }
-    for (int c = 0; c < W; ++c)
-    {
-        dst_mua(c) = x0[2 * c];
-        dst_musp(c) = x0[2 * c + 1];
-    }
+    dst_mua = x0[0];
+    dst_musp = x0[1];
 }
 void GridInverseSolver::solve_and_save(const std::string &output_bin)
 {
@@ -143,11 +121,11 @@ void GridInverseSolver::solve_and_save(const std::string &output_bin)
     {
         solve(model_comp, grid_results[i].model, grid_results[i].mua, grid_results[i].musp);
     }
-    for (const auto &item : grid_results)
+    for (const SFDI::SFDI_Result &item : grid_results)
     {
-        fout.write(reinterpret_cast<const char *>(item.mua.data()), sizeof(double) * SFDI::WAVELENGTH_NUM);
-        fout.write(reinterpret_cast<const char *>(item.musp.data()), sizeof(double) * SFDI::WAVELENGTH_NUM);
-        fout.write(reinterpret_cast<const char *>(item.model.data()), sizeof(double) * SFDI::WAVELENGTH_NUM * SFDI::FREQ_NUM);
+        fout.write(reinterpret_cast<const char *>(&item.mua), sizeof(double));
+        fout.write(reinterpret_cast<const char *>(&item.musp), sizeof(double));
+        fout.write(reinterpret_cast<const char *>(item.model.data()), sizeof(double) * SFDI::FREQ_NUM);
     }
     fout.close();
 }

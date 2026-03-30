@@ -14,7 +14,7 @@
    <string>MainWindow</string>
   </property>
   <widget class="QWidget" name="centralWidget">
-   <layout class="QHBoxLayout" name="horizontalLayout_3" stretch="0,1">
+   <layout class="QHBoxLayout" name="horizontalLayout_3">
     <item>
      <layout class="QVBoxLayout" name="verticalLayout_3">
       <item>
@@ -84,7 +84,7 @@
            <item>
             <widget class="QPushButton" name="pushButton_ConnectCam">
              <property name="enabled">
-              <bool>true</bool>
+              <bool>false</bool>
              </property>
              <property name="sizePolicy">
               <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
@@ -104,60 +104,11 @@
            <property name="verticalSpacing">
             <number>0</number>
            </property>
-           <item row="1" column="0">
-            <widget class="QLabel" name="label_CamGain">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
-             </property>
-             <property name="text">
-              <string>Gain</string>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="0">
-            <widget class="QLabel" name="label_CamExposeTime">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
-             </property>
-             <property name="minimumSize">
-              <size>
-               <width>0</width>
-               <height>0</height>
-              </size>
-             </property>
-             <property name="text">
-              <string>Expose(us)</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="1">
-            <widget class="QDoubleSpinBox" name="doubleSpinBox_CamGain">
+           <item row="2" column="1">
+            <widget class="QCheckBox" name="checkBox_AutoGain">
              <property name="enabled">
               <bool>false</bool>
              </property>
-             <property name="maximumSize">
-              <size>
-               <width>100</width>
-               <height>16777215</height>
-              </size>
-             </property>
-            </widget>
-           </item>
-           <item row="2" column="0">
-            <widget class="QCheckBox" name="checkBox_AutoExpose">
-             <property name="text">
-              <string>Auto Expose</string>
-             </property>
-            </widget>
-           </item>
-           <item row="2" column="1">
-            <widget class="QCheckBox" name="checkBox_AutoGain">
              <property name="text">
               <string>Auto Gain</string>
              </property>
@@ -185,6 +136,74 @@
                <width>100</width>
                <height>16777215</height>
               </size>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="0">
+            <widget class="QLabel" name="label_CamExposeTime">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Expose(us)</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel" name="label_CamGain">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="text">
+              <string>Gain</string>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="0">
+            <widget class="QCheckBox" name="checkBox_AutoExpose">
+             <property name="enabled">
+              <bool>false</bool>
+             </property>
+             <property name="text">
+              <string>Auto Expose</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QDoubleSpinBox" name="doubleSpinBox_CamGain">
+             <property name="enabled">
+              <bool>false</bool>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>100</width>
+               <height>16777215</height>
+              </size>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="0">
+            <widget class="QCheckBox" name="checkBox_CamSyncDmd">
+             <property name="enabled">
+              <bool>false</bool>
+             </property>
+             <property name="text">
+              <string>Sync Dmd</string>
+             </property>
+             <property name="tristate">
+              <bool>false</bool>
              </property>
             </widget>
            </item>
@@ -219,26 +238,8 @@
           </widget>
          </item>
          <item>
-          <layout class="QHBoxLayout" name="horizontalLayout">
-           <item>
-            <widget class="QLabel" name="label_Freq">
-             <property name="text">
-              <string>Freq</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QComboBox" name="comboBox_Freq">
-             <property name="enabled">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </item>
-         <item>
-          <layout class="QHBoxLayout" name="horizontalLayout_4">
-           <item>
+          <layout class="QGridLayout" name="gridLayout_3">
+           <item row="5" column="0">
             <widget class="QPushButton" name="pushButton_UpdateFreq">
              <property name="minimumSize">
               <size>
@@ -251,7 +252,35 @@
              </property>
             </widget>
            </item>
-           <item>
+           <item row="3" column="0">
+            <widget class="QLabel" name="label_Freq">
+             <property name="text">
+              <string>IMG Index</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="0">
+            <widget class="QLabel" name="label_DmdExpose">
+             <property name="text">
+              <string>Expose(us)</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QSpinBox" name="spinBox_DmdExposeTime">
+             <property name="maximum">
+              <number>9999999</number>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="1">
+            <widget class="QSpinBox" name="spinBox_DmdIndex">
+             <property name="maximum">
+              <number>0</number>
+             </property>
+            </widget>
+           </item>
+           <item row="5" column="1">
             <widget class="QPushButton" name="pushButton_StopProject">
              <property name="minimumSize">
               <size>
@@ -265,6 +294,35 @@
             </widget>
            </item>
           </layout>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="groupBox_measure">
+        <property name="title">
+         <string>Measure</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_4">
+         <item>
+          <widget class="QPushButton" name="pushButton_Calibrate">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>Calibrate</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="pushButton_Measure">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>Measure</string>
+           </property>
+          </widget>
          </item>
         </layout>
        </widget>
@@ -285,23 +343,20 @@
      </layout>
     </item>
     <item>
-     <widget class="QGraphicsView" name="graphicsView_CamView">
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-        <horstretch>0</horstretch>
-        <verstretch>0</verstretch>
-       </sizepolicy>
-      </property>
-      <property name="minimumSize">
-       <size>
-        <width>500</width>
-        <height>500</height>
-       </size>
-      </property>
-      <property name="frameShape">
-       <enum>QFrame::Shape::StyledPanel</enum>
-      </property>
-     </widget>
+     <layout class="QGridLayout" name="gridLayout_2">
+      <item row="0" column="0">
+       <widget class="QGraphicsView" name="graphicsView_CamView"/>
+      </item>
+      <item row="0" column="1">
+       <widget class="QGraphicsView" name="graphicsView_"/>
+      </item>
+      <item row="1" column="0">
+       <widget class="QGraphicsView" name="graphicsView_mua"/>
+      </item>
+      <item row="1" column="1">
+       <widget class="QGraphicsView" name="graphicsView_musp"/>
+      </item>
+     </layout>
     </item>
    </layout>
   </widget>
@@ -317,6 +372,25 @@
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
  </widget>
+ <tabstops>
+  <tabstop>spinBox_DmdExposeTime</tabstop>
+  <tabstop>comboxBox_CamSelector</tabstop>
+  <tabstop>pushButton_ConnectCam</tabstop>
+  <tabstop>doubleSpinBox_CamExposeTime</tabstop>
+  <tabstop>doubleSpinBox_CamGain</tabstop>
+  <tabstop>checkBox_AutoGain</tabstop>
+  <tabstop>checkBox_AutoExpose</tabstop>
+  <tabstop>checkBox_CamSyncDmd</tabstop>
+  <tabstop>checkBox_ProjectStatus</tabstop>
+  <tabstop>pushButton_UpdateFreq</tabstop>
+  <tabstop>graphicsView_mua</tabstop>
+  <tabstop>graphicsView_CamView</tabstop>
+  <tabstop>graphicsView_</tabstop>
+  <tabstop>spinBox_DmdIndex</tabstop>
+  <tabstop>graphicsView_musp</tabstop>
+  <tabstop>pushButton_StopProject</tabstop>
+  <tabstop>pushButton_ScanCam</tabstop>
+ </tabstops>
  <resources/>
  <connections/>
 </ui>

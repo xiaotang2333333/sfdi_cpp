@@ -9,7 +9,7 @@ namespace SFDI
     private:
         int step_count;
         double drdc, drac;
-
+        std::vector<SFDI::SFDI_Result> results_table; // 存储完整结果，作为成员数据
     public:
         SFDI_Lookup(
             int step_count,
@@ -17,6 +17,6 @@ namespace SFDI
         ~SFDI_Lookup() = default;
 
         // 查找接口：给定测量的 model，返回最近的 (mua, musp)
-        void query(const Reflect_wave_freq &measured, Optical_prop &mua_dst, Optical_prop &musp_dst)const;
+        void query(const Reflect &measured, double &mua_dst, double &musp_dst)const;
     };
 }

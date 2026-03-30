@@ -19,9 +19,9 @@ target_include_directories(Hardware
 
 target_link_libraries(Hardware
     PUBLIC
-        Qt6::Core
-        Qt6::Widgets
-        Eigen3::Eigen
-        HTSDK
-        DLP_Driver
+    Qt6::Core
+    Qt6::Widgets
+    Eigen3::Eigen
+    HTSDK
+    DLP_Driver
 )

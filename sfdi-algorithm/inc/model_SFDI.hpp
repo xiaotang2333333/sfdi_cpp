@@ -10,93 +10,41 @@
 namespace SFDI
 {
 
-    constexpr int IMG_HEIGHT = 512,
-                  IMG_WIDTH = 672,
-                  WAVELENGTH_NUM = 1,
-                  TIME_BIN = 200,
+    constexpr int TIME_BIN = 200,
                   RHO_BIN = 200,
                   FREQ_NUM = 2;
     using Tiff_img = Eigen::Tensor<double, 3, Eigen::RowMajor>;
-    using SFDI_data = Eigen::TensorFixedSize<
-        double,
-        Eigen::Sizes<IMG_HEIGHT, IMG_WIDTH, WAVELENGTH_NUM, 3, FREQ_NUM>,
-        Eigen::RowMajor>; // (H,W,C,P,F)
-    using SFDI_Reflect = Eigen::TensorFixedSize<
-        double,
-        Eigen::Sizes<IMG_HEIGHT, IMG_WIDTH, WAVELENGTH_NUM, FREQ_NUM>,
-        Eigen::RowMajor>; // (H,W,C,F) AC分量计算结果
-    using Int_time = Eigen::TensorFixedSize<
-        double,
-        Eigen::Sizes<WAVELENGTH_NUM>,
-        Eigen::RowMajor>;
-    using Optical_prop_map = Eigen::TensorFixedSize<
-        double,
-        Eigen::Sizes<IMG_HEIGHT, IMG_WIDTH, WAVELENGTH_NUM>,
-        Eigen::RowMajor>;                                                     // 一维数组 包含每个波长的积分时间
-    using Optical_prop = Eigen::Array<double, WAVELENGTH_NUM, 1>;             // 光学特性 与 波长相关
-    using Freq = Eigen::Array<double, FREQ_NUM, 1>;                           // 固定长度一维向量
-    using Reflect_wave_freq = Eigen::Array<double, WAVELENGTH_NUM, FREQ_NUM>; // 固定大小二维数组
-    using Reflect_freq = Eigen::Array<double, 1, FREQ_NUM>;                   // 固定大小一维数组
-    using MC_data = Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic>;     // 固定大小二维数组(T,R)读取蒙特卡罗模拟结果
+    using Freq = Eigen::Array2d;                                          // 固定长度一维向量
+    using Reflect = Eigen::Array<double, 1, FREQ_NUM>;               // 固定大小一维数组
+    using MC_data = Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic>; // 固定大小二维数组(T,R)读取蒙特卡罗模拟结果
     struct SFDI_Result
     {
-        Optical_prop mua;              // 吸收系数
-        Optical_prop musp;             // 约化散射系数
-        SFDI::Reflect_wave_freq model; // 计算结果 (WAVELENGTH_NUM × FREQ_NUM)
+        double mua;               // 吸收系数
+        double musp;              // 约化散射系数
+        SFDI::Reflect model; // 计算结果 (WAVELENGTH_NUM × FREQ_NUM)
     };
-    extern Eigen::Map<const Reflect_wave_freq> AC2Model(const SFDI_Reflect &ac, int h, int w);
-    extern void Compute_AC(const SFDI_data &input, const Int_time &int_time, SFDI_Reflect &output);
+    extern void Compute_Amplitude_Envelope(const Eigen::ArrayXXd &inputp0,
+                                           const Eigen::ArrayXXd &inputp120,
+                                           const Eigen::ArrayXXd &inputp240,
+                                           const double int_time,
+                                           Eigen::ArrayXXd &out);
     extern Tiff_img open_tiff(const std::string &filename);
-    class model_SFDI
-    {
-    private:
-        std::unique_ptr<SFDI_Reflect> ref_AC_ptr;
-        std::unique_ptr<Reflect_wave_freq> ref_R_ptr; // (W,F,R)
-        Optical_prop n, delta_t_div_fresnel, v;
-        Freq frequency;
-        Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic> v_t, twopi_rho_drho; //(W,R)
-        std::unique_ptr<Eigen::TensorFixedSize<
-            double,
-            Eigen::Sizes<WAVELENGTH_NUM, FREQ_NUM, RHO_BIN>,
-            Eigen::RowMajor>>
-            Jterm_ptr; // (W,F,R)
-        std::unique_ptr<Int_time> int_time_ptr;
-
-    public:
-        model_SFDI(
-            const std::string &ref_folder = "reference_670",
-            const std::string &R_of_rho_time_mc_path = "ROfRhoAndTime");
-        ~model_SFDI() = default;
-        void diff_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const;
-        void mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const;
-        void mc_model_for_SFDI_Dmua(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const;
-        void mc_model_for_SFDI_Dmusp(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const;
-        void LoadAndComputeAC(const std::string &folder, SFDI_Reflect &output_ac);
-        void R_compute(const SFDI_Reflect &input_ac, SFDI_Reflect &output_R);
-        void setFrequency(const Freq &freq);
-        void setN(const Optical_prop &n);
-        void setIntTime(const Int_time &int_time);
-        void FreqTest(double start, double end, int num_points);
-    };
+    extern bool save_tiff(const std::string &filename, const Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &data);
     class mc_model
     {
     private:
-        Optical_prop n, delta_t_div_fresnel, v;
+        double n, delta_t_div_fresnel, v;
         Freq frequency;
-        std::unique_ptr<Eigen::TensorFixedSize<
-            double,
-            Eigen::Sizes<WAVELENGTH_NUM, FREQ_NUM, RHO_BIN>,
-            Eigen::RowMajor>>
-            Jterm_ptr; // (W,F,R)
-        Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic> v_t, twopi_rho_drho; //(W,R) 
+        Eigen::ArrayXXd Jterm;               //(F,R)
+        Eigen::ArrayXd v_t, twopi_rho_drho; //(T,1) (R,1)
     public:
         mc_model(
             const std::string &R_of_rho_time_mc_path = "ROfRhoAndTime");
         ~mc_model() = default;
-        void mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const;
-        void mc_model_for_SFDI_Dmua(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const;
-        void mc_model_for_SFDI_Dmusp(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const;
+        void mc_model_for_SFDI(const double mua, const double musp, Reflect &dst) const;
+        void mc_model_for_SFDI_Dmua(const double mua, const double musp, Reflect &dst) const;
+        void mc_model_for_SFDI_Dmusp(const double mua, const double musp, Reflect &dst) const;
         void setFrequency(const Freq &freq);
-        void setN(const Optical_prop &n);
+        void setN(const double n);
     };
 };

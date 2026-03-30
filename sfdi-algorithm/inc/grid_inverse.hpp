@@ -13,7 +13,7 @@ namespace SFDI
         // step为网格步长，n为网格数
         GridInverseSolver(int rdc_n, int rac_n, double rdc_min = 0.0, double rdc_max = 1.0, double rac_min = 0.0, double rac_max = 1.0);
         // 多波长联合优化: 一次性优化所有波长的mua和musp，结果写入dst_mua, dst_musp
-        void solve(const SFDI::mc_model &model,const SFDI::Reflect_wave_freq &target, Optical_prop &dst_mua, Optical_prop &dst_musp) const;
+        void solve(const SFDI::mc_model &model,const SFDI::Reflect &target, double &dst_mua, double &dst_musp) const;
         void solve_and_save(const std::string &output_bin);
         void build_grid();
         std::vector<SFDI::SFDI_Result> grid_results;

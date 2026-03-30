@@ -10,6 +10,8 @@ target_sources(sfdiUI
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/MainWindow.ui
     ${CMAKE_CURRENT_SOURCE_DIR}/src/MainWindow.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/inc/MainWindow.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/compute_ctrl.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/inc/compute_ctrl.hpp
 )
 
 
@@ -25,4 +27,5 @@ target_link_libraries(sfdiUI
         Qt6::Core
         Qt6::Widgets
         Hardware
+        sfdiAlgorithm
 )

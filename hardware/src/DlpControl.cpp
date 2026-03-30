@@ -26,6 +26,7 @@ void Dlpc3500::pollTimerTimeout()
             if (DLPC350_GetNumImagesInFlash(&imgCount) == 0)
             {
                 m_numImgInFlash = imgCount;
+                emit flashIndexUpdated(imgCount);
             }
             SetDLPC350InPatternMode();
         }
@@ -91,7 +92,7 @@ void Dlpc3500::stopProject()
             break;
     }
 }
-void Dlpc3500::updateFrequency(unsigned int index)
+void Dlpc3500::updateFrequency(unsigned char index)
 {
     // Implementation to update the pattern display frequency
     if (!DLPC350_USB_IsConnected())
@@ -102,12 +103,25 @@ void Dlpc3500::updateFrequency(unsigned int index)
     DLPC350_AddToPatLut(0, 0, 8, 1, false, false, true, false);
     DLPC350_AddToPatLut(0, 1, 8, 1, false, false, false, false);
     DLPC350_AddToPatLut(0, 2, 8, 1, false, false, false, false);
+    DLPC350_AddToPatLut(0, 0, 8, 1, false, false, true, false);
+    DLPC350_AddToPatLut(0, 1, 8, 1, false, false, false, false);
+    DLPC350_AddToPatLut(0, 2, 8, 1, false, false, false, false);
+
     DLPC350_SetPatternDisplayMode(false); // Set to internal trigger mode
-    if (DLPC350_SetPatternConfig(3, true, 1, 1) < 0)
+    unsigned int numPatterns;
+    if(RepeatMode)
+    {
+        numPatterns = 1;
+    }
+    else
+    {
+        numPatterns = 6;
+    }
+    if (DLPC350_SetPatternConfig(6, RepeatMode, numPatterns, 2) < 0)
     {
         return;
     }
-    if (DLPC350_SetExposure_FramePeriod(1000000, 1000000) < 0)
+    if (DLPC350_SetExposure_FramePeriod(exposeTime, exposeTime) < 0)
     {
         return;
     }
@@ -119,7 +133,7 @@ void Dlpc3500::updateFrequency(unsigned int index)
     {
         return;
     }
-    std::vector<unsigned char> splashLut = {4};
+    std::vector<unsigned char> splashLut = {2,index};
     if (DLPC350_SendImageLut(splashLut.data(), splashLut.size()) < 0)
     {
         return;

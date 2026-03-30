@@ -23,33 +23,6 @@ namespace
     static const Eigen::ArrayXd time_var = Eigen::ArrayXd::LinSpaced(SFDI::TIME_BIN, delta_t / 2, delta_t *SFDI::TIME_BIN - delta_t / 2);
     static const Eigen::ArrayXd rho_var = Eigen::ArrayXd::LinSpaced(SFDI::RHO_BIN, delta_rho / 2, delta_rho *SFDI::RHO_BIN - delta_rho / 2);
 }
-SFDI::model_SFDI::model_SFDI(
-    const std::string &ref_folder,
-    const std::string &R_of_rho_time_mc_path)
-{
-    std::cout << "Initializing SFDI model..." << std::endl;
-    ref_AC_ptr = std::make_unique<SFDI_Reflect>();
-    ref_R_ptr = std::make_unique<Reflect_wave_freq>();
-    Jterm_ptr = std::make_unique<Eigen::TensorFixedSize<
-        double,
-        Eigen::Sizes<WAVELENGTH_NUM, FREQ_NUM, RHO_BIN>,
-        Eigen::RowMajor>>();
-    int_time_ptr = std::make_unique<Int_time>();
-    int_time_ptr->setConstant(1.0); // 默认积分时间1s
-    std::cout << "Loading Monte Carlo data from: " << R_of_rho_time_mc_path << std::endl;
-    std::call_once(load_flag, load_R_of_rho_time, R_of_rho_time_mc_path);
-    std::cout << "Monte Carlo data loaded" << std::endl;
-    v_t.resize(SFDI::WAVELENGTH_NUM, SFDI::TIME_BIN);
-    twopi_rho_drho.resize(SFDI::WAVELENGTH_NUM, SFDI::RHO_BIN);
-    twopi_rho_drho = delta_rho * two_pi * (rho_var.transpose().replicate(SFDI::WAVELENGTH_NUM, 1));
-    setN(SFDI::Optical_prop().Constant(1.4));
-    setFrequency((SFDI::Freq() << 0.0, 0.2).finished());
-    LoadAndComputeAC(ref_folder, *ref_AC_ptr);
-    diff_model_for_SFDI(SFDI::Optical_prop().setConstant(0.0059), SFDI::Optical_prop().setConstant(0.9748), *ref_R_ptr);
-    std::cout << *ref_R_ptr << std::endl;
-    mc_model_for_SFDI(SFDI::Optical_prop().setConstant(0.0059), SFDI::Optical_prop().setConstant(0.9748), *ref_R_ptr);
-    std::cout << *ref_R_ptr << std::endl;
-}
 SFDI::Tiff_img SFDI::open_tiff(const std::string &filename)
 {
     TIFF *tif = TIFFOpen(filename.c_str(), "r");
@@ -128,245 +101,85 @@ SFDI::Tiff_img SFDI::open_tiff(const std::string &filename)
     TIFFClose(tif);
     return out;
 }
-void SFDI::Compute_AC(const SFDI::SFDI_data &input, const SFDI::Int_time &int_time, SFDI::SFDI_Reflect &output)
+bool SFDI::save_tiff(const std::string &filename, const Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &data)
 {
-    const double sqrt_2_over_3 = std::sqrt(2.0) / 3.0;
-
-    Eigen::array<Eigen::Index, 4> reshape_dims = {1, 1, WAVELENGTH_NUM, 1};
-    Eigen::array<Eigen::Index, 4> broadcast_dims = {IMG_HEIGHT, IMG_WIDTH, 1, FREQ_NUM};
-    auto int_time_bcast = int_time.reshape(reshape_dims).broadcast(broadcast_dims);
-
-    auto img_0 = input.chip(0, 3);
-    auto img_120 = input.chip(1, 3);
-    auto img_240 = input.chip(2, 3);
-
-    auto numerator = (img_0 - img_120).square() +
-                     (img_0 - img_240).square() +
-                     (img_120 - img_240).square();
-
-    output.device(Eigen::DefaultDevice()) =
-        (numerator.sqrt() * sqrt_2_over_3 / int_time_bcast);
-}
-void SFDI::model_SFDI::diff_model_for_SFDI(const SFDI::Optical_prop mua, const SFDI::Optical_prop musp, Reflect_wave_freq &dst) const
-{
-
-    auto mutrans = mua + musp;
-    auto Reff = -1.440 / this->n.square() + 0.710 / this->n + 0.668 + 0.0636 * this->n;
-    auto A = (1 - Reff) / (2 * (1 + Reff));
-    auto term1 = 3.0 * mua * mutrans;                 // shape (W)
-    auto term2 = (two_pi * this->frequency).square(); // shape (F)
-    SFDI::Reflect_wave_freq mueff_prime =
-        term2.transpose().template replicate<WAVELENGTH_NUM, 1>(); // (W,F)
-    mueff_prime.colwise() += term1;                                // 广播 term1 到每一列
-    mueff_prime = mueff_prime.sqrt();                              // shape (W,F)
-    SFDI::Optical_prop threeA = 3.0 * A;                           // (W,1)
-    SFDI::Optical_prop num_col = threeA * musp * mutrans;          // (W,1)
-    SFDI::Reflect_wave_freq denom1 = mueff_prime;                  // (W,F)
-    denom1.colwise() += mutrans;                                   // mueff + mutrans
-    Reflect_wave_freq denom2 = mueff_prime;                        // (W,F)
-    denom2.colwise() += threeA * mutrans;                          // mueff + 3*A*mutrans
-    dst =
-        num_col.template replicate<1, FREQ_NUM>() / (denom1 * denom2); // (W,F)
-}
-void SFDI::model_SFDI::mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, SFDI::Reflect_wave_freq &dst) const
-{
-    // (W, 1) 预计算倒数
-    Optical_prop musp_inv = musp.inverse();
-    Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> musp_inv_map(musp_inv.data(), SFDI::WAVELENGTH_NUM, 1, 1);
-    // (W, T) * (T, R) -> (W, R)
-    Eigen::ArrayXXd decay = (-(v_t.colwise() * (mua * musp_inv))).exp();          // exp(-v * t * mua / musp )
-    Eigen::ArrayXXd R_rho = (decay.matrix() * R_of_rho_time_mc.matrix()).array(); // R_rho = R_of_rho_time_mc /F * decay *dt/musp *musp^3
-    // 构建积分权重 term_noj:  R_rho * twopi_rho_drho  / musp^2
-    Eigen::ArrayXXd term_noj = (R_rho * twopi_rho_drho).colwise() * delta_t_div_fresnel; //
-    Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>>
-        term_noj_tensor(term_noj.data(), SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN);
-    Eigen::TensorMap<Eigen::Tensor<double, 2, Eigen::RowMajor>> dst_map(dst.data(), SFDI::WAVELENGTH_NUM, SFDI::FREQ_NUM);
-    // 执行汉克尔变换(沿 R 轴求和)
-    dst_map = (term_noj_tensor.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, 1}) *
-               ((*Jterm_ptr) * (musp_inv_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, SFDI::RHO_BIN}))).bessel_j0())
-                  .sum(Eigen::array<Eigen::Index, 1>{2}); // 对 R 轴求和
-}
-Eigen::Map<const SFDI::Reflect_wave_freq> SFDI::AC2Model(const SFDI::SFDI_Reflect &ac, int h, int w)
-{
-    const double *ptr = ac.data();
-    size_t offset = ((h * SFDI::IMG_WIDTH) + w) * SFDI::WAVELENGTH_NUM * SFDI::FREQ_NUM;
-    return Eigen::Map<const SFDI::Reflect_wave_freq>(ptr + offset);
-}
-void SFDI::model_SFDI::setFrequency(const Freq &freq_input)
-{
-    if (!freq_input.isApprox(this->frequency))
+    TIFF *tif = TIFFOpen(filename.c_str(), "w");
+    if (!tif)
     {
-        std::cout << "Setting modulation frequency to: " << freq_input.transpose() << " mm^-1" << std::endl;
-        frequency = freq_input;
-        Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> frequency_tensor(
-            frequency.data(), 1, SFDI::FREQ_NUM, 1);
-        Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> Rho_tensor_map(
-            rho_var.data(), 1, 1, SFDI::RHO_BIN);
-        (*Jterm_ptr) = (frequency_tensor.broadcast(Eigen::array<Eigen::Index, 3>{SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN}) * Rho_tensor_map.broadcast(Eigen::array<Eigen::Index, 3>{WAVELENGTH_NUM, FREQ_NUM, 1})) * two_pi;
+        std::cerr << "Error: Unable to create TIFF file: " << filename << std::endl;
+        return false;
     }
-}
-void SFDI::model_SFDI::setN(const Optical_prop &input_n)
-{
-    constexpr double mc_f = 1.0 - ((1 - 1.4) / (1 + 1.4)) * ((1 - 1.4) / (1 + 1.4));
-    if (!n.isApprox(input_n))
+
+    const uint32_t width = static_cast<uint32_t>(data.cols());
+    const uint32_t height = static_cast<uint32_t>(data.rows());
+
+    // 设置 TIFF 标签
+    TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, width);
+    TIFFSetField(tif, TIFFTAG_IMAGELENGTH, height);
+    TIFFSetField(tif, TIFFTAG_BITSPERSAMPLE, 64);
+    TIFFSetField(tif, TIFFTAG_SAMPLESPERPIXEL, 1);
+    TIFFSetField(tif, TIFFTAG_SAMPLEFORMAT, SAMPLEFORMAT_IEEEFP);
+    TIFFSetField(tif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_MINISBLACK);
+    TIFFSetField(tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+    TIFFSetField(tif, TIFFTAG_ROWSPERSTRIP, TIFFDefaultStripSize(tif, 0));
+
+    // 写入扫描线
+    std::vector<double> buf(width);
+    for (uint32_t row = 0; row < height; ++row)
     {
-        std::cout << "Setting refractive index to: " << input_n.transpose() << std::endl;
-        v = light_speed / input_n; // 光速除以折射率
-        n = input_n;
-        auto F = 1 - ((1 - input_n) / (1 + input_n)).square();
-        delta_t_div_fresnel = (delta_t * mc_f / F).eval();
-        v_t = v.matrix() * time_var.transpose().matrix(); // (W,T) 预计算 v*t
+        // 从 Eigen Array 复制数据到缓冲区
+        std::copy(data.row(row).data(), data.row(row).data() + width, buf.begin());
+        if (TIFFWriteScanline(tif, buf.data(), row) < 0)
+        {
+            std::cerr << "Error: TIFFWriteScanline failed at row " << row << " for file: " << filename << std::endl;
+            TIFFClose(tif);
+            return false;
+        }
     }
+
+    TIFFClose(tif);
+    return true;
 }
-void SFDI::model_SFDI::setIntTime(const Int_time &int_time)
+void SFDI::Compute_Amplitude_Envelope(const Eigen::ArrayXXd &inputp0,
+                                      const Eigen::ArrayXXd &inputp120,
+                                      const Eigen::ArrayXXd &inputp240,
+                                      const double int_time,
+                                      Eigen::ArrayXXd &out)
 {
-    this->int_time_ptr->operator=(int_time);
-}
-void SFDI::model_SFDI::LoadAndComputeAC(const std::string &folder, SFDI_Reflect &output_ac)
-{
-    if (folder.empty())
+    const auto sz = inputp0.size();
+    if (inputp120.size() != sz || inputp240.size() != sz)
     {
-        throw std::runtime_error("Error: Reference folder path is empty.");
+        throw std::invalid_argument("Input arrays have different sizes");
     }
-    std::unique_ptr<SFDI_data> inputdata_ptr = std::make_unique<SFDI_data>();
-    Tiff_img img_0hz_0phase = open_tiff(folder + "/im01.tif"),
-             img_0hz_120phase = open_tiff(folder + "/im02.tif"),
-             img_0hz_240phase = open_tiff(folder + "/im03.tif"),
-             img_02hz_0phase = open_tiff(folder + "/im04.tif"),
-             img_02hz_120phase = open_tiff(folder + "/im05.tif"),
-             img_02hz_240phase = open_tiff(folder + "/im06.tif"); //(H,W,C)
-    Eigen::array<Eigen::Index, 5> extents = {
-        SFDI::IMG_HEIGHT, SFDI::IMG_WIDTH, SFDI::WAVELENGTH_NUM, 1, 1};
-    Eigen::array<Eigen::Index, 5> offsets_0hz_0phase = {0, 0, 0, 0, 0};
-    inputdata_ptr->slice(offsets_0hz_0phase, extents) =
-        img_0hz_0phase.reshape(extents); // 使用 reshape 匹配维度
-    Eigen::array<Eigen::Index, 5> offsets_0hz_120phase = {0, 0, 0, 1, 0};
-    inputdata_ptr->slice(offsets_0hz_120phase, extents) =
-        img_0hz_120phase.reshape(extents);
-
-    Eigen::array<Eigen::Index, 5> offsets_0hz_240phase = {0, 0, 0, 2, 0};
-    inputdata_ptr->slice(offsets_0hz_240phase, extents) =
-        img_0hz_240phase.reshape(extents);
-    Eigen::array<Eigen::Index, 5> offsets_02hz_0phase = {0, 0, 0, 0, 1};
-    inputdata_ptr->slice(offsets_02hz_0phase, extents) =
-        img_02hz_0phase.reshape(extents);
-
-    Eigen::array<Eigen::Index, 5> offsets_02hz_120phase = {0, 0, 0, 1, 1};
-    inputdata_ptr->slice(offsets_02hz_120phase, extents) =
-        img_02hz_120phase.reshape(extents);
-    Eigen::array<Eigen::Index, 5> offsets_02hz_240phase = {0, 0, 0, 2, 1};
-    inputdata_ptr->slice(offsets_02hz_240phase, extents) =
-        img_02hz_240phase.reshape(extents);
-    Compute_AC(*inputdata_ptr, *int_time_ptr, output_ac);
-}
-/// @brief 计算输入图片集反射率，用于后续反演出mua musp
-/// @param input_ac
-/// @return 输入图片的每个像素点的反射率
-void SFDI::model_SFDI::R_compute(const SFDI::SFDI_Reflect &input_ac, SFDI::SFDI_Reflect &output_R)
-{
-    Eigen::TensorMap<const Eigen::Tensor<double, 4, Eigen::RowMajor>> ref_R_tensor(
-        ref_R_ptr->data(), 1, 1, SFDI::WAVELENGTH_NUM, SFDI::FREQ_NUM);
-    output_R = ref_R_tensor.broadcast(Eigen::array<Eigen::Index, 4>{SFDI::IMG_HEIGHT, SFDI::IMG_WIDTH, 1, 1}) / (*ref_AC_ptr) * input_ac;
-}
-void SFDI::model_SFDI::FreqTest(double start, double end, int num_points)
-{
-    Eigen::ArrayXd test_freqs = Eigen::ArrayXd::LinSpaced(num_points, start, end);
-    Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> test_freqs_map(test_freqs.data(), 1, num_points, 1);
-    Optical_prop mua_test = Optical_prop::Constant(0.01);
-    Eigen::ArrayXXd R_rho, term_noj;
-    R_rho.resize(SFDI::WAVELENGTH_NUM, SFDI::RHO_BIN);
-    term_noj.resize(SFDI::WAVELENGTH_NUM, SFDI::RHO_BIN);
-    auto decay = (-(v_t.colwise() * mua_test)).exp();             // exp(-v * t * mua / musp ) =  exp(-v * t * mua)
-    R_rho = (decay.matrix() * R_of_rho_time_mc.matrix()).array(); // R_rho = sum(R_of_rho_time*decay * dt / F ) * musp ^ 2
-    // 构建积分权重 term_noj:  R_rho * twopi_rho_drho  / musp^2
-    term_noj = (R_rho * twopi_rho_drho).colwise() * delta_t_div_fresnel;
-    Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>>
-        term_noj_tensor(term_noj.data(), SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN);
-    Eigen::Tensor<double, 2, Eigen::RowMajor> R_freqs(SFDI::WAVELENGTH_NUM, num_points);
-    Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> Rho_tensor_map(
-        rho_var.data(), 1, 1, SFDI::RHO_BIN);
-    Eigen::Tensor<double, 3, Eigen::RowMajor> Jterm(SFDI::WAVELENGTH_NUM, num_points, SFDI::RHO_BIN);
-    Jterm = (test_freqs_map.broadcast(Eigen::array<Eigen::Index, 3>{SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN}) * // 2pi*f*rho / musp = 2pi*f*rho
-             Rho_tensor_map.broadcast(Eigen::array<Eigen::Index, 3>{SFDI::WAVELENGTH_NUM, num_points, 1}) * two_pi);
-    R_freqs = (term_noj_tensor.broadcast(Eigen::array<Eigen::Index, 3>{1, num_points, 1}) *
-               Jterm.bessel_j0())
-                  .sum(Eigen::array<Eigen::Index, 1>{2}); // 对 R 轴求和
-
-    // 以二进制保存 R_freqs (按行主序, 行: 波长, 列: 频率点)
-    std::ofstream fout_bin("R_freqs.bin", std::ios::binary);
-    if (!fout_bin.is_open())
-        throw std::runtime_error("Cannot open file to write R_freqs.bin");
-    fout_bin.write(reinterpret_cast<const char *>(R_freqs.data()),
-                   sizeof(double) * static_cast<std::size_t>(SFDI::WAVELENGTH_NUM) * static_cast<std::size_t>(num_points));
-    fout_bin.close();
-}
-void SFDI::model_SFDI::mc_model_for_SFDI_Dmua(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const
-{
-    // (W, 1) 预计算倒数
-    Optical_prop musp_inv = musp.inverse();
-    Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> musp_inv_map(musp_inv.data(), SFDI::WAVELENGTH_NUM, 1, 1);
-    auto v_t_musp_inv = -(v_t.colwise() * musp_inv);
-    auto decay = v_t_musp_inv * (v_t_musp_inv.colwise() * mua).exp(); // exp(-v * t * mua / musp )
-    // (W, T) * (T, R) -> (W, R)
-    auto R_rho_dmua = (decay.matrix() * R_of_rho_time_mc.matrix()).array(); // R_rho_dmua = R_of_rho_time_mc /F * decay *dt/musp *musp^3 * v*t/musp
-    // 构建积分权重 term_noj:  R_rho * twopi_rho_drho  / musp^2
-    Eigen::ArrayXXd term_noj = (R_rho_dmua * twopi_rho_drho).colwise() * delta_t_div_fresnel; //
-    Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>>
-        term_noj_tensor(term_noj.data(), SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN);
-    Eigen::TensorMap<Eigen::Tensor<double, 2, Eigen::RowMajor>> dst_map(dst.data(), SFDI::WAVELENGTH_NUM, SFDI::FREQ_NUM);
-    // 执行汉克尔变换(沿 R 轴求和)
-    dst_map = (term_noj_tensor.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, 1}) *
-               ((*Jterm_ptr) * (musp_inv_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, SFDI::RHO_BIN}))).bessel_j0())
-                  .sum(Eigen::array<Eigen::Index, 1>{2}); // 对 R 轴求和
-}
-void SFDI::model_SFDI::mc_model_for_SFDI_Dmusp(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const
-{
-    // (W, 1) 预计算倒数
-    Optical_prop musp_inv = musp.inverse();
-    Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> musp_inv_map(musp_inv.data(), SFDI::WAVELENGTH_NUM, 1, 1);
-    auto v_t_musp_inv_mua = -(v_t.colwise() * (musp_inv * mua));
-    auto decay = v_t_musp_inv_mua.exp();
-    auto decay_dmusp = (v_t_musp_inv_mua * decay).colwise() * (-musp_inv); // exp(-v * t * mua / musp ) * v * t * mua / musp**2
-    // (W, T) * (T, R) -> (W, R)
-    Eigen::ArrayXXd R_rho_dmusp = (decay_dmusp.matrix() * R_of_rho_time_mc.matrix()).array().colwise() * delta_t_div_fresnel; // R_rho_dmua = R_of_rho_time_mc /F * decay *dt/musp *musp^3 * v*t/musp
-    // 构建积分权重 term_noj:  R_rho * twopi_rho_drho  / musp^2
-    Eigen::ArrayXXd R_rho = (decay.matrix() * R_of_rho_time_mc.matrix()).array().colwise() * delta_t_div_fresnel;
-    Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>>
-        R_rho_map(R_rho.data(), SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN);
-    Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>>
-        R_rho_dmusp_map(R_rho_dmusp.data(), SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN);
-    Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>>
-        twopi_rho_drho_map(twopi_rho_drho.data(), SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN);
-    Eigen::Tensor<double, 3, Eigen::RowMajor> Jterm = (*Jterm_ptr) * (musp_inv_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, SFDI::RHO_BIN}));
-    Eigen::TensorMap<Eigen::Tensor<double, 2, Eigen::RowMajor>> dst_map(dst.data(), SFDI::WAVELENGTH_NUM, SFDI::FREQ_NUM);
-    dst_map = ((R_rho_dmusp_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, 1}) * Jterm.bessel_j0() +
-                R_rho_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, 1}) * Jterm.bessel_j1() * Jterm * (musp_inv_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, SFDI::RHO_BIN}))) *
-               twopi_rho_drho_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, 1}))
-                  .sum(Eigen::array<Eigen::Index, 1>{2}); // 对 R 轴求和
+    const double sqrt2_div_3 = std::sqrt(2.0) / 3.0;
+    out = sqrt2_div_3 * ((inputp0 - inputp120).square() + (inputp120 - inputp240).square() + (inputp240 - inputp0).square()).sqrt() / int_time;
 }
 SFDI::mc_model::mc_model(const std::string &R_of_rho_time_mc_path)
 {
     std::call_once(load_flag, load_R_of_rho_time, R_of_rho_time_mc_path);
-    Jterm_ptr = std::make_unique<Eigen::TensorFixedSize<
-        double,
-        Eigen::Sizes<WAVELENGTH_NUM, FREQ_NUM, RHO_BIN>,
-        Eigen::RowMajor>>();
-    v_t.resize(SFDI::WAVELENGTH_NUM, SFDI::TIME_BIN);
-    twopi_rho_drho.resize(SFDI::WAVELENGTH_NUM, SFDI::RHO_BIN);
-    twopi_rho_drho = delta_rho * two_pi * (rho_var.transpose().replicate(SFDI::WAVELENGTH_NUM, 1));
-    setN(SFDI::Optical_prop().Constant(1.4));
-    setFrequency((SFDI::Freq() << 0.0, 0.2).finished());
+    Jterm.resize(SFDI::FREQ_NUM, SFDI::RHO_BIN);
+    v_t.resize(SFDI::TIME_BIN);
+    twopi_rho_drho.resize(SFDI::RHO_BIN);
+    twopi_rho_drho = delta_rho * two_pi * rho_var;
+    setN(1.4);
+    SFDI::Freq freq;
+    freq << 0.0, 0.2;
+    setFrequency(freq);
+    Reflect dst;
+    mc_model_for_SFDI(0.01, 1.0, dst);
+    mc_model_for_SFDI_Dmua(0.01, 1.0, dst);
+    mc_model_for_SFDI_Dmusp(0.01, 1.0, dst);
 }
-void SFDI::mc_model::setN(const Optical_prop &input_n)
+void SFDI::mc_model::setN(const double input_n)
 {
     constexpr double mc_f = 1.0 - ((1 - 1.4) / (1 + 1.4)) * ((1 - 1.4) / (1 + 1.4));
-    if (!n.isApprox(input_n))
+    if (n != input_n)
     {
         v = light_speed / input_n; // 光速除以折射率
         n = input_n;
-        auto F = 1 - ((1 - input_n) / (1 + input_n)).square();
-        delta_t_div_fresnel = (delta_t * mc_f / F).eval();
-        v_t = v.matrix() * time_var.transpose().matrix(); // (W,T) 预计算 v*t
+        double F = 1 - ((1 - input_n) / (1 + input_n)) * ((1 - input_n) / (1 + input_n));
+        delta_t_div_fresnel = delta_t * mc_f / F;
+        v_t = v * time_var; // (W,T) 预计算 v*t
     }
 }
 void SFDI::mc_model::setFrequency(const Freq &freq_input)
@@ -374,76 +187,56 @@ void SFDI::mc_model::setFrequency(const Freq &freq_input)
     if (!frequency.isApprox(freq_input))
     {
         frequency = freq_input;
-        Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> frequency_tensor(
-            frequency.data(), 1, SFDI::FREQ_NUM, 1);
-        Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> Rho_tensor_map(
-            rho_var.data(), 1, 1, SFDI::RHO_BIN);
-        *Jterm_ptr = (frequency_tensor.broadcast(Eigen::array<Eigen::Index, 3>{SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN}) * Rho_tensor_map.broadcast(Eigen::array<Eigen::Index, 3>{WAVELENGTH_NUM, SFDI::FREQ_NUM, 1})) * two_pi;
+        Jterm = two_pi * (frequency.matrix() * rho_var.matrix().transpose()).array(); // (F,R) 预计算 2*pi*f*rho F
     }
 }
-void SFDI::mc_model::mc_model_for_SFDI(const Optical_prop mua, const Optical_prop musp, SFDI::Reflect_wave_freq &dst) const
+void SFDI::mc_model::mc_model_for_SFDI(const double mua, const double musp, SFDI::Reflect &dst) const
 {
-    // (W, 1) 预计算倒数
-    const Optical_prop musp_inv = musp.inverse();
-    const Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> musp_inv_map(musp_inv.data(), SFDI::WAVELENGTH_NUM, 1, 1);
-    // (W, T) * (T, R) -> (W, R)
-    auto decay = (-(v_t.colwise() * (mua * musp_inv))).exp();         // exp(-v * t * mua / musp )
-    auto R_rho = (decay.matrix() * R_of_rho_time_mc.matrix()).array(); // R_rho = R_of_rho_time_mc /F * decay *dt/musp *musp^3
+    // 预计算倒数
+    const double musp_inv = 1.0 / musp;
+    // (T,1) * (T, R) -> (R)
+    auto decay = (-(v_t * (mua * musp_inv))).exp(); // exp(-v * t * mua / musp )
+    // decay.matrix().transpose() 是 (1, T), R_of_rho_time_mc.matrix() 是 (T, R), 乘积是 (1, R)
+    // 需要转置为 (R,) 列向量以匹配 twopi_rho_drho 的维度
+    auto R_rho = (decay.matrix().transpose() * R_of_rho_time_mc.matrix()).array(); // R_rho = R_of_rho_time_mc /F * decay *dt/musp *musp^3
     // 构建积分权重 term_noj:  R_rho * twopi_rho_drho  / musp^2
-    const Eigen::ArrayXXd term_noj = (R_rho * twopi_rho_drho).colwise() * delta_t_div_fresnel; //
-    const Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>>
-        term_noj_tensor(term_noj.data(), SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN);
-    Eigen::TensorMap<Eigen::Tensor<double, 2, Eigen::RowMajor>> dst_map(dst.data(), SFDI::WAVELENGTH_NUM, SFDI::FREQ_NUM);
+    auto term_noj = R_rho.transpose() * twopi_rho_drho * delta_t_div_fresnel;
     // 执行汉克尔变换(沿 R 轴求和)
-    dst_map = (term_noj_tensor.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, 1}) *
-               ((*Jterm_ptr) * (musp_inv_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, SFDI::RHO_BIN}))).bessel_j0())
-                  .sum(Eigen::array<Eigen::Index, 1>{2}); // 对 R 轴求和
+    // bessel_j0(Jterm * musp_inv) -> (F, R), term_noj -> (R,1)
+    dst = bessel_j0(Jterm * musp_inv).matrix() * term_noj.matrix(); // 对 R 轴求和
 }
-void SFDI::mc_model::mc_model_for_SFDI_Dmua(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const
+void SFDI::mc_model::mc_model_for_SFDI_Dmua(const double mua, const double musp, SFDI::Reflect &dst) const
 {
-    // (W, 1) 预计算倒数
-    const Optical_prop musp_inv = musp.inverse();
-    const Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> musp_inv_map(musp_inv.data(), SFDI::WAVELENGTH_NUM, 1, 1);
-    auto v_t_musp_inv = -(v_t.colwise() * musp_inv); // (W,T) 预计算 -v*t/musp
-    auto decay_dmua = v_t_musp_inv * (v_t_musp_inv.colwise() * mua).exp(); // exp(-v * t * mua / musp )
-    // (W, T) * (T, R) -> (W, R)
-    auto R_rho_dmua = (decay_dmua.matrix() * R_of_rho_time_mc.matrix()).array(); // R_rho_dmua = R_of_rho_time_mc /F * decay *dt/musp *musp^3 * v*t/musp
+    // 预计算倒数
+    const double musp_inv = 1.0 / musp;
+    auto v_t_musp_inv = -(v_t * musp_inv);                       // (T,1) 预计算 -v*t/musp
+    auto decay_dmua = v_t_musp_inv * (v_t_musp_inv * mua).exp(); // exp(-v * t * mua / musp )
+    // (1,T) * (T, R) -> (1,R)
+    auto R_rho_dmua = (decay_dmua.matrix().transpose() * R_of_rho_time_mc.matrix()).array(); // R_rho_dmua = R_of_rho_time_mc /F * decay *dt/musp *musp^3 * v*t/musp
     // 构建积分权重 term_noj:  R_rho * twopi_rho_drho  / musp^2
-    const Eigen::ArrayXXd term_noj = (R_rho_dmua * twopi_rho_drho).colwise() * delta_t_div_fresnel; //
-    const Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>>
-        term_noj_tensor(term_noj.data(), SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN);
-    Eigen::TensorMap<Eigen::Tensor<double, 2, Eigen::RowMajor>> dst_map(dst.data(), SFDI::WAVELENGTH_NUM, SFDI::FREQ_NUM);
+    auto term_noj = R_rho_dmua.transpose() * twopi_rho_drho * delta_t_div_fresnel;//(R,1)
     // 执行汉克尔变换(沿 R 轴求和)
-    dst_map = (term_noj_tensor.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, 1}) *
-               ((*Jterm_ptr) * (musp_inv_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, SFDI::RHO_BIN}))).bessel_j0())
-                  .sum(Eigen::array<Eigen::Index, 1>{2}); // 对 R 轴求和
+    dst = bessel_j0(Jterm * musp_inv).matrix() * term_noj.matrix(); // 对 R 轴求和
 }
-void SFDI::mc_model::mc_model_for_SFDI_Dmusp(const Optical_prop mua, const Optical_prop musp, Reflect_wave_freq &dst) const
+void SFDI::mc_model::mc_model_for_SFDI_Dmusp(const double mua, const double musp, SFDI::Reflect &dst) const
 {
-    // (W, 1) 预计算倒数
-    const Optical_prop musp_inv = musp.inverse();
-    const Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>> musp_inv_map(musp_inv.data(), SFDI::WAVELENGTH_NUM, 1, 1);
-    auto v_t_musp_inv_mua = -(v_t.colwise() * (musp_inv * mua));
-    const Eigen::ArrayXXd decay = v_t_musp_inv_mua.exp();
-    auto decay_dmusp = (v_t_musp_inv_mua * decay).colwise() * (-musp_inv); // exp(-v * t * mua / musp ) * v * t * mua / musp**2
-    // (W, T) * (T, R) -> (W, R)
-    const Eigen::ArrayXXd R_rho_dmusp = (decay_dmusp.matrix() * R_of_rho_time_mc.matrix()).array().colwise() * delta_t_div_fresnel; // R_rho_dmua = R_of_rho_time_mc /F * decay *dt/musp *musp^3 * v*t/musp
+    // 预计算倒数
+    const double musp_inv = 1.0 / musp;
+    auto v_t_musp_inv_mua = -(v_t * musp_inv * mua);
+    auto decay = v_t_musp_inv_mua.exp();
+    auto decay_dmusp = -v_t_musp_inv_mua * decay * musp_inv; // exp(-v * t * mua / musp ) * v * t * mua / musp**2
+    // (1,T) * (T, R) -> (1,R)
+    // decay_dmusp.matrix().transpose() 是 (1, T), R_of_rho_time_mc.matrix() 是 (T, R), 乘积是 (1, R)
+    // 需要转置为 (R,) 列向量
+    const Eigen::ArrayXd R_rho_dmusp = (decay_dmusp.matrix().transpose() * R_of_rho_time_mc.matrix()).array() * delta_t_div_fresnel; // R_rho_dmua = R_of_rho_time_mc /F * decay *dt/musp *musp^3 * v*t/musp
     // 构建积分权重 term_noj:  R_rho * twopi_rho_drho  / musp^2
-    const Eigen::ArrayXXd R_rho = (decay.matrix() * R_of_rho_time_mc.matrix()).array().colwise() * delta_t_div_fresnel;
-    const Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>>
-        R_rho_map(R_rho.data(), SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN);
-    const Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>>
-        R_rho_dmusp_map(R_rho_dmusp.data(), SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN);
-    const Eigen::TensorMap<const Eigen::Tensor<double, 3, Eigen::RowMajor>>
-        twopi_rho_drho_map(twopi_rho_drho.data(), SFDI::WAVELENGTH_NUM, 1, SFDI::RHO_BIN);
-    const Eigen::Tensor<double, 3, Eigen::RowMajor> Jterm = (*Jterm_ptr) * (musp_inv_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, SFDI::RHO_BIN}));
-    Eigen::TensorMap<Eigen::Tensor<double, 2, Eigen::RowMajor>> dst_map(dst.data(), SFDI::WAVELENGTH_NUM, SFDI::FREQ_NUM);
-    dst_map = (
-        (
-            R_rho_dmusp_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, 1}) * Jterm.bessel_j0()
-            +
-            R_rho_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, 1}) * Jterm.bessel_j1() * Jterm * (musp_inv_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, SFDI::RHO_BIN}))
-        ) *
-        twopi_rho_drho_map.broadcast(Eigen::array<Eigen::Index, 3>{1, SFDI::FREQ_NUM, 1}))
-                  .sum(Eigen::array<Eigen::Index, 1>{2}); // 对 R 轴求和
+    const Eigen::ArrayXd R_rho = (decay.matrix().transpose() * R_of_rho_time_mc.matrix()).array() * delta_t_div_fresnel;
+    const Eigen::ArrayXXd Jterm_musp_inv = Jterm * musp_inv;
+    // 先构造两个权重向量，再用矩阵乘法（(F,R) * (R,1) -> (F,1)）
+    auto J0 = bessel_j0(Jterm_musp_inv);
+    auto J1 = bessel_j1(Jterm_musp_inv) * Jterm_musp_inv;
+    auto w0 = R_rho_dmusp * twopi_rho_drho;           // (R)
+    auto w1 = R_rho * twopi_rho_drho * musp_inv;      // (R)
+
+    dst = J0.matrix() * w0.matrix() + J1.matrix() * w1.matrix();     // (F,1)
 }
