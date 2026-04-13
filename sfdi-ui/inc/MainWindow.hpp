@@ -4,13 +4,14 @@
 #include <QThread>
 #include <QGraphicsScene>
 #include <QGraphicsPixmapItem>
+#include <memory>
 #include "CamControl.hpp"
 #include "DlpControl.hpp"
 #include "compute_ctrl.hpp"
 
 struct SceneData
 {
-    QGraphicsScene *scene = nullptr;
+    std::unique_ptr<QGraphicsScene> scene;
     QGraphicsPixmapItem *pixmapItem = nullptr;
     QPixmap pixmap;
     QImage img; 
@@ -34,29 +35,27 @@ public:
     ~MainWindow();
 signals:
     void isCamConnected(bool connected);
+    void requestScan();
+    void requestConnectCamera(int cameraIndex);
+    void requestDisconnectCamera(int cameraIndex);
+    void requestSetCameraExposure(double exposureTime);
+    void requestSetCameraTriggerMode(bool enableExternalTrigger);
 
 private:
     Hardware::Dlpc3500 m_dlpc3500;
-    Ui::MainWindow *ui;
-    //相机及其线程
-    QThread *m_camThread = nullptr;
+    std::unique_ptr<Ui::MainWindow> ui;
+    std::unique_ptr<QThread> m_camThread;
     Hardware::CamControl m_camControl;
-    //标定计算控制器及其线程
-    QThread *m_calibComputeThread = nullptr;
+    std::unique_ptr<QThread> m_calibComputeThread;
     CalibrationComputeCtrl m_calibComputeCtrl;
-    // 测量计算控制器及其线程
-    QThread *m_measureComputeThread = nullptr;
+    std::unique_ptr<QThread> m_measureComputeThread;
     MeasureComputeCtrl m_measureComputeCtrl;
-    // 保存线程
-    QThread *m_saveThread = nullptr;
+    std::unique_ptr<QThread> m_saveThread;
     Saver m_saver;
-    // FPS计算
-    QElapsedTimer m_frameTimer; // monotonic timer for inter-frame timing
-    qint64 m_prevFrameMs = -1;  // last frame timestamp in ms (elapsed from m_frameTimer.start())
+    QElapsedTimer m_frameTimer;
+    qint64 m_prevFrameMs = -1;
     double m_lastFps = 0.0;
-    // 帧处理标志：用于丢弃旧帧，避免事件队列堆积
-    std::atomic<bool> m_frameProcessing{false};
-    // 
+    bool m_camConnected = false;
     void setIsCamConnected(bool connected);
     SceneData m_sceneData[SCENENUM];
     
@@ -70,14 +69,15 @@ private slots:
     void on_doubleSpinBox_CamExposeTime_editingFinished();
     void on_checkBox_CamSyncDmd_toggled(bool checked);
     void on_spinBox_DmdExposeTime_editingFinished();
-    void onImageGrabbed(const Eigen::Array<uint16_t, Eigen::Dynamic, Eigen::Dynamic> &frame);
-    void updateMeasureMap(const Eigen::Array<uint8_t, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &mua_8bit,
-                            const Eigen::Array<uint8_t, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &musp_8bit);
+    void onImageGrabbed(std::shared_ptr<uint8_t> data, int width, int height, int size);
+    void onCameraScanCompleted(const QStringList &cameraLabels, const QString &status);
+    void onCameraConnectionCompleted(bool success, const QString &status);
+    void onCameraDisconnectionCompleted(bool success, const QString &status);
+    void onCameraExposureRangeReady(bool success, double minValue, double maxValue, const QString &status);
+    void onCameraParameterSetCompleted(bool success, const QString &status);
+    void updateMeasureMap(MeasureImagePtr mua_8bit,
+                          MeasureImagePtr musp_8bit);
     void updateDmdIndex(unsigned int imgCount);
-    //相机回调
-    void onCamThreadStarted();
-    void onCamThreadFinished();
-    //计算回调
     void onCalibrateComplete();
-    void onMeasureComplete();
+    void onSingleMeasureComplete();
 };

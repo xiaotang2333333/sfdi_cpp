@@ -54,6 +54,7 @@ void GridInverseSolver::solve(const SFDI::mc_model &model, const Reflect &target
     x0[0] = 0.1;
     x0[1] = 2.0;
     nlopt::opt opt(nlopt::LD_LBFGS, n_params);
+    opt.set_local_optimizer(opt);
     opt.set_lower_bounds(lb);
     opt.set_upper_bounds(ub);
     opt.set_xtol_rel(1e-6);
@@ -119,6 +120,10 @@ void GridInverseSolver::solve_and_save(const std::string &output_bin)
 #pragma omp parallel for
     for (int i = 0; i < total; ++i)
     {
+        if(i % 100 == 0)
+        {
+            std::cout << "Processing " << i << "/" << total << "...\n";
+        }
         solve(model_comp, grid_results[i].model, grid_results[i].mua, grid_results[i].musp);
     }
     for (const SFDI::SFDI_Result &item : grid_results)

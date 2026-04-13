@@ -1,54 +1,69 @@
 #include "MainWindow.hpp"
 #include "ui_MainWindow.h"
+#include "colormap.hpp"
 #include <iostream>
 #include <QtWidgets/QPushButton>
 #include <QGraphicsScene>
 #include <QGraphicsPixmapItem>
 #include <QImage>
 #include <QPixmap>
+#include <QSignalBlocker>
+#include <QMetaType>
 #include <Eigen/Dense>
+
 MainWindow::MainWindow(QWidget *parent)
-    : QMainWindow(parent), ui(new Ui::MainWindow), m_camControl(Hardware::CamControl()), m_calibComputeCtrl(1.0), m_measureComputeCtrl(1.0) // 初始化标定和测量计算控制器，默认积分时间为1.0s
+    : QMainWindow(parent), ui(std::make_unique<Ui::MainWindow>()), m_camControl(Hardware::CamControl()), m_calibComputeCtrl(1.0), m_measureComputeCtrl(1.0)
 {
+    qRegisterMetaType<std::shared_ptr<uint8_t>>("std::shared_ptr<uint8_t>");
+    qRegisterMetaType<MeasureImagePtr>("MeasureImagePtr");
+    qRegisterMetaType<SaveImagePtr>("SaveImagePtr");
     ui->setupUi(this);
     ui->pushButton_ConnectCam->setCheckable(true);
     ui->pushButton_ConnectCam->setText("connect");
-    m_camThread = new QThread(this);
-    m_camControl.moveToThread(m_camThread);
+    m_camThread = std::make_unique<QThread>();
+    m_camControl.moveToThread(m_camThread.get());
+    m_camThread->start();
     // Start frame-interval timer
     m_prevFrameMs = -1;
     m_frameTimer.start();
 
-    m_sceneData[CamScene].scene = new QGraphicsScene(this);
+    m_sceneData[CamScene].scene = std::make_unique<QGraphicsScene>();
     m_sceneData[CamScene].pixmapItem = m_sceneData[CamScene].scene->addPixmap(QPixmap());
-    ui->graphicsView_CamView->setScene(m_sceneData[CamScene].scene);
-    // 相机信号连接
-    connect(&m_camControl, &Hardware::CamControl::frameReceived, this, &MainWindow::onImageGrabbed);
-    connect(&m_camControl, &Hardware::CamControl::frameReceived, &m_calibComputeCtrl, &CalibrationComputeCtrl::frameGrabbed);
-    connect(&m_camControl, &Hardware::CamControl::frameReceived, &m_measureComputeCtrl, &MeasureComputeCtrl::frameGrabbed);
-    connect(m_camThread, &QThread::started, this, &MainWindow::onCamThreadStarted);
-    connect(m_camThread, &QThread::finished, this, &MainWindow::onCamThreadFinished);
+    ui->graphicsView_CamView->setScene(m_sceneData[CamScene].scene.get());
+    connect(this, &MainWindow::requestScan, &m_camControl, &Hardware::CamControl::scanCamerasRequest, Qt::QueuedConnection);
+    connect(this, &MainWindow::requestConnectCamera, &m_camControl, &Hardware::CamControl::connectCameraRequest, Qt::QueuedConnection);
+    connect(this, &MainWindow::requestDisconnectCamera, &m_camControl, &Hardware::CamControl::disconnectCameraRequest, Qt::QueuedConnection);
+    connect(this, &MainWindow::requestSetCameraExposure, &m_camControl, &Hardware::CamControl::setCameraExposureTimeRequest, Qt::QueuedConnection);
+    connect(this, &MainWindow::requestSetCameraTriggerMode, &m_camControl, &Hardware::CamControl::setCameraTriggerModeRequest, Qt::QueuedConnection);
+    connect(&m_camControl, &Hardware::CamControl::frameReceivedForUI, this, &MainWindow::onImageGrabbed);
+    connect(&m_camControl, &Hardware::CamControl::frameReceivedForCompute, &m_calibComputeCtrl, &CalibrationComputeCtrl::frameGrabbed);
+    connect(&m_camControl, &Hardware::CamControl::frameReceivedForCompute, &m_measureComputeCtrl, &MeasureComputeCtrl::frameGrabbed);
+    connect(&m_camControl, &Hardware::CamControl::scanCompleted, this, &MainWindow::onCameraScanCompleted);
+    connect(&m_camControl, &Hardware::CamControl::connectionCompleted, this, &MainWindow::onCameraConnectionCompleted);
+    connect(&m_camControl, &Hardware::CamControl::disconnectionCompleted, this, &MainWindow::onCameraDisconnectionCompleted);
+    connect(&m_camControl, &Hardware::CamControl::exposureRangeReady, this, &MainWindow::onCameraExposureRangeReady);
+    connect(&m_camControl, &Hardware::CamControl::parameterSetCompleted, this, &MainWindow::onCameraParameterSetCompleted);
     // 创建标定结果显示场景
-    m_sceneData[MuaScene].scene = new QGraphicsScene(this);
+    m_sceneData[MuaScene].scene = std::make_unique<QGraphicsScene>();
     m_sceneData[MuaScene].pixmapItem = m_sceneData[MuaScene].scene->addPixmap(QPixmap());
-    ui->graphicsView_mua->setScene(m_sceneData[MuaScene].scene);
-    m_sceneData[MuspScene].scene = new QGraphicsScene(this);
+    ui->graphicsView_mua->setScene(m_sceneData[MuaScene].scene.get());
+    m_sceneData[MuspScene].scene = std::make_unique<QGraphicsScene>();
     m_sceneData[MuspScene].pixmapItem = m_sceneData[MuspScene].scene->addPixmap(QPixmap());
-    ui->graphicsView_musp->setScene(m_sceneData[MuspScene].scene);
+    ui->graphicsView_musp->setScene(m_sceneData[MuspScene].scene.get());
     connect(&m_measureComputeCtrl, &MeasureComputeCtrl::measureComplete, this, &MainWindow::updateMeasureMap);
     // 创建标定计算线程
-    m_calibComputeThread = new QThread(this);
-    m_calibComputeCtrl.moveToThread(m_calibComputeThread);
-    connect(m_calibComputeThread, &QThread::started, &m_calibComputeCtrl, &CalibrationComputeCtrl::startRun);
+    m_calibComputeThread = std::make_unique<QThread>();
+    m_calibComputeCtrl.moveToThread(m_calibComputeThread.get());
+    m_calibComputeThread->start(); // 先启动计算线程，等待标定控制器接收帧数据后再开始标定计算
     connect(&m_calibComputeCtrl, &CalibrationComputeCtrl::calibrateComplete, this, &MainWindow::onCalibrateComplete);
     // 创建计算线程
-    m_measureComputeThread = new QThread(this);
-    m_measureComputeCtrl.moveToThread(m_measureComputeThread);
-    connect(m_measureComputeThread, &QThread::started, &m_measureComputeCtrl, &MeasureComputeCtrl::startRun);
-    connect(&m_measureComputeCtrl, &MeasureComputeCtrl::measureComplete, this, &MainWindow::onMeasureComplete);
+    m_measureComputeThread = std::make_unique<QThread>();
+    m_measureComputeCtrl.moveToThread(m_measureComputeThread.get());
+    m_measureComputeThread->start(); // 先启动计算线程，等待测量控制器接收帧数据后再开始测量计算
+    connect(&m_measureComputeCtrl, &MeasureComputeCtrl::measureComplete, this, &MainWindow::onSingleMeasureComplete);
     // 保存线程
-    m_saveThread = new QThread(this);
-    m_saver.moveToThread(m_saveThread);
+    m_saveThread = std::make_unique<QThread>();
+    m_saver.moveToThread(m_saveThread.get());
     connect(&m_calibComputeCtrl, &CalibrationComputeCtrl::saveFrame, &m_saver, &Saver::saveFrame);
     connect(&m_measureComputeCtrl, &MeasureComputeCtrl::saveFrame, &m_saver, &Saver::saveFrame);
     m_saveThread->start();
@@ -57,15 +72,7 @@ MainWindow::MainWindow(QWidget *parent)
             { ui->checkBox_ProjectStatus->setChecked(isConnected); });
     // ui
     connect(this, &MainWindow::isCamConnected, ui->doubleSpinBox_CamExposeTime, [this](bool connected)
-            { 
-                ui->doubleSpinBox_CamExposeTime->setEnabled(connected); 
-                if(connected)
-                {
-                    double minVal, maxVal;
-                    std::tie(maxVal, minVal) = m_camControl.getCameraDoubleParametersMaxAndMin("ExposureTime");
-                    ui->doubleSpinBox_CamExposeTime->setMinimum(minVal);
-                    ui->doubleSpinBox_CamExposeTime->setMaximum(maxVal);
-                } });
+            { ui->doubleSpinBox_CamExposeTime->setEnabled(connected); });
     connect(this, &MainWindow::isCamConnected, ui->doubleSpinBox_CamGain, [this](bool connected)
             { ui->doubleSpinBox_CamGain->setEnabled(connected); });
     connect(this, &MainWindow::isCamConnected, ui->checkBox_AutoExpose, [this](bool connected)
@@ -79,67 +86,52 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
-    // Clean up CamControl thread if running
     if (m_camThread)
     {
+        if (m_camConnected)
+        {
+            const int cameraIndex = ui->comboxBox_CamSelector->currentIndex();
+            QMetaObject::invokeMethod(&m_camControl, "disconnectCameraRequest", Qt::BlockingQueuedConnection, Q_ARG(int, cameraIndex));
+        }
         m_camThread->quit();
         m_camThread->wait();
-        m_camThread->deleteLater();
-        m_camThread = nullptr;
+        m_camThread.reset();
     }
     // Clean up CalibrationComputeCtrl thread
     if (m_calibComputeThread)
     {
         m_calibComputeThread->quit();
         m_calibComputeThread->wait();
-        m_calibComputeThread->deleteLater();
-        m_calibComputeThread = nullptr;
+        m_calibComputeThread.reset();
     }
     // Clean up MeasureComputeCtrl thread
     if (m_measureComputeThread)
     {
         m_measureComputeThread->quit();
         m_measureComputeThread->wait();
-        m_measureComputeThread->deleteLater();
-        m_measureComputeThread = nullptr;
+        m_measureComputeThread.reset();
     }
     if (m_saveThread)
     {
         m_saveThread->quit();
         m_saveThread->wait();
-        m_saveThread->deleteLater();
-        m_saveThread = nullptr;
+        m_saveThread.reset();
     }
-    delete ui;
 }
 void MainWindow::on_pushButton_ScanCam_clicked()
 {
     ui->pushButton_ScanCam->setEnabled(false);
+    ui->statusbar->showMessage("Scanning cameras...");
+    emit requestScan();
+}
 
-    QString status;
-    const IMV_DeviceList &deviceList = m_camControl.scanCameras();
+void MainWindow::onCameraScanCompleted(const QStringList &cameraLabels, const QString &status)
+{
     ui->comboxBox_CamSelector->clear();
-    int cameraCount = static_cast<int>(deviceList.nDevNum);
-    if (cameraCount == 0)
-    {
-        status = "No cameras found.";
-        ui->pushButton_ConnectCam->setEnabled(false);
-    }
-    else
-    {
-        for (unsigned int i = 0; i < deviceList.nDevNum; ++i)
-        {
-            const IMV_DeviceInfo &devInfo = deviceList.pDevInfo[i];
-            QString camLabel = QString("Camera %1: %2")
-                                   .arg(i)
-                                   .arg(QString::fromStdString(devInfo.modelName));
-            ui->comboxBox_CamSelector->addItem(camLabel);
-        }
-        status = QString("Found %1 camera(s).").arg(cameraCount);
-        ui->pushButton_ConnectCam->setEnabled(true);
-    }
-    ui->statusbar->showMessage(status);
+    ui->comboxBox_CamSelector->addItems(cameraLabels);
+    ui->pushButton_ConnectCam->setEnabled(!cameraLabels.isEmpty() || m_camConnected);
     ui->pushButton_ScanCam->setEnabled(true);
+    ui->statusbar->showMessage(status);
 }
 void MainWindow::on_pushButton_ConnectCam_toggled(bool checked)
 {
@@ -147,58 +139,106 @@ void MainWindow::on_pushButton_ConnectCam_toggled(bool checked)
     if (ui->comboxBox_CamSelector->currentIndex() < 0)
     {
         ui->statusbar->showMessage("No camera selected.");
+        QSignalBlocker blocker(ui->pushButton_ConnectCam);
         ui->pushButton_ConnectCam->setChecked(false);
+        ui->pushButton_ConnectCam->setEnabled(true);
     }
     else if (checked)
     {
-        // Start CamControl in a worker thread
-        if (m_camThread && m_camThread->isRunning())
-        {
-            ui->statusbar->showMessage("Camera already running.");
-        }
-        else
-        {
-            m_camThread->start();
-            ui->pushButton_ConnectCam->setText("disconnect");
-            ui->statusbar->showMessage("Camera connected (CamControl thread started).");
-        }
+        const int cameraIndex = ui->comboxBox_CamSelector->currentIndex();
+        ui->statusbar->showMessage("Connecting camera...");
+        emit requestConnectCamera(cameraIndex);
     }
     else
     {
-        if (m_camThread && m_camThread->isRunning())
-        {
-            m_camThread->quit();
-            m_camThread->wait();
-        }
-        ui->pushButton_ConnectCam->setText("connect");
-        ui->statusbar->showMessage("Camera disconnected (CamControl thread stopped).");
+        ui->statusbar->showMessage("Disconnecting camera...");
+        const int cameraIndex = ui->comboxBox_CamSelector->currentIndex();
+        emit requestDisconnectCamera(cameraIndex);
     }
-    ui->pushButton_ConnectCam->setEnabled(true);
 }
 
-void MainWindow::onImageGrabbed(const Eigen::Array<uint16_t, Eigen::Dynamic, Eigen::Dynamic> &frame)
+void MainWindow::onCameraConnectionCompleted(bool success, const QString &status)
 {
-    const int height = frame.rows();
-    const int width = frame.cols();
-    if (width <= 0 || height <= 0)
+    if (success)
+    {
+        m_camConnected = true;
+        ui->pushButton_ConnectCam->setText("disconnect");
+        QSignalBlocker blocker(ui->pushButton_ConnectCam);
+        ui->pushButton_ConnectCam->setChecked(true);
+        setIsCamConnected(true);
+    }
+    else
+    {
+        m_camConnected = false;
+        ui->pushButton_ConnectCam->setText("connect");
+        QSignalBlocker blocker(ui->pushButton_ConnectCam);
+        ui->pushButton_ConnectCam->setChecked(false);
+        setIsCamConnected(false);
+    }
+    ui->pushButton_ConnectCam->setEnabled(true);
+    ui->statusbar->showMessage(status);
+}
+
+void MainWindow::onCameraDisconnectionCompleted(bool success, const QString &status)
+{
+    if (success)
+    {
+        m_camConnected = false;
+        ui->pushButton_ConnectCam->setText("connect");
+        QSignalBlocker blocker(ui->pushButton_ConnectCam);
+        ui->pushButton_ConnectCam->setChecked(false);
+        setIsCamConnected(false);
+    }
+    else
+    {
+        ui->pushButton_ConnectCam->setChecked(true);
+    }
+    ui->pushButton_ConnectCam->setEnabled(true);
+    ui->statusbar->showMessage(status);
+}
+
+void MainWindow::onCameraExposureRangeReady(bool success, double minValue, double maxValue, const QString &status)
+{
+    if (success && m_camConnected)
+    {
+        ui->doubleSpinBox_CamExposeTime->setMinimum(minValue);
+        ui->doubleSpinBox_CamExposeTime->setMaximum(maxValue);
+    }
+    ui->statusbar->showMessage(status);
+}
+
+void MainWindow::onCameraParameterSetCompleted(bool success, const QString &status)
+{
+    Q_UNUSED(success)
+    ui->statusbar->showMessage(status);
+}
+
+void MainWindow::onImageGrabbed(std::shared_ptr<uint8_t> data, int width, int height, int size)
+{
+    if (width <= 0 || height <= 0 || !data)
     {
         ui->statusbar->showMessage("Invalid frame received.");
         return;
     }
-    // 检查图像尺寸是否变化，必要时重新分配QImage
     QImage &img = m_sceneData[CamScene].img;
     bool sizeChanged = (img.width() != width) || (img.height() != height);
     if (sizeChanged || img.format() != QImage::Format_Grayscale16)
     {
         img = QImage(width, height, QImage::Format_Grayscale16);
     }
+    const uint16_t *src = reinterpret_cast<const uint16_t *>(data.get());
     uint16_t *dst = reinterpret_cast<uint16_t *>(img.bits());
-    const uint16_t *src = frame.data();
-
-    for (int i = 0; i < width * height; ++i)
+    const int dstStride = static_cast<int>(img.bytesPerLine() / sizeof(uint16_t));
+    for (int y = 0; y < height; ++y)
     {
-        dst[i] = src[i] << 4; // 等价于 *16
+        const int srcRowOffset = y * width;
+        const int dstRowOffset = y * dstStride;
+        for (int x = 0; x < width; ++x)
+        {
+            dst[dstRowOffset + x] = static_cast<uint16_t>(src[srcRowOffset + x] << 4);
+        }
     }
+
     if (sizeChanged)
     {
         m_sceneData[CamScene].pixmap = QPixmap::fromImage(img);
@@ -235,6 +275,8 @@ void MainWindow::on_pushButton_StopProject_clicked()
     // Placeholder for stopping projection functionality
     ui->statusbar->showMessage("Projection stopped.");
     m_dlpc3500.stopProject();
+    QMetaObject::invokeMethod(&m_calibComputeCtrl, "stopRun", Qt::QueuedConnection);
+    QMetaObject::invokeMethod(&m_measureComputeCtrl, "stopRun", Qt::QueuedConnection);
 }
 void MainWindow::on_pushButton_UpdateFreq_clicked()
 {
@@ -249,35 +291,20 @@ void MainWindow::setIsCamConnected(bool connected)
 }
 void MainWindow::on_doubleSpinBox_CamExposeTime_editingFinished()
 {
-    if (m_camThread)
+    if (m_camConnected)
     {
         double exposeTime = ui->doubleSpinBox_CamExposeTime->value();
-        try
-        {
-            m_camControl.setCameraDoubleParameters("ExposureTime", exposeTime);
-            ui->statusbar->showMessage(QString("Exposure time set to %1 us.").arg(exposeTime));
-        }
-        catch (const std::runtime_error &e)
-        {
-            ui->statusbar->showMessage(QString("Error setting exposure time: %1").arg(e.what()));
-        }
+        ui->statusbar->showMessage(QString("Updating exposure time to %1 us...").arg(exposeTime));
+        emit requestSetCameraExposure(exposeTime);
     }
 }
 void MainWindow::on_checkBox_CamSyncDmd_toggled(bool checked)
 {
     // switch cam to trigger mode if checked, free-run mode if unchecked
-    if (m_camThread)
+    if (m_camConnected)
     {
-        try
-        {
-            m_camControl.setCameraTriggerMode(checked);
-            ui->statusbar->showMessage(QString("Camera trigger mode set to %1.").arg(checked ? "External Trigger" : "Free Run"));
-            ui->pushButton_Calibrate->setEnabled(checked); // Enable calibration button when exposure time is set
-        }
-        catch (const std::runtime_error &e)
-        {
-            ui->statusbar->showMessage(QString("Error setting camera trigger mode: %1").arg(e.what()));
-        }
+        ui->statusbar->showMessage(QString("Updating camera trigger mode to %1...").arg(checked ? "External Trigger" : "Free Run"));
+        emit requestSetCameraTriggerMode(checked);
     }
 }
 void MainWindow::on_pushButton_Calibrate_clicked()
@@ -285,7 +312,7 @@ void MainWindow::on_pushButton_Calibrate_clicked()
     // Placeholder for calibration functionality
     ui->statusbar->showMessage("Calibration started.");
     // 校准时，dmd进行投影，相机进行拍摄，获取图像并进行处理以完成标定
-    if (!m_camThread || !m_calibComputeThread)
+    if (!m_camConnected || !m_calibComputeThread)
     {
         ui->statusbar->showMessage("Camera or Calibration thread not running.");
         return;
@@ -297,16 +324,16 @@ void MainWindow::on_pushButton_Calibrate_clicked()
     else
     {
         ui->statusbar->showMessage("Camera-DMD sync is disabled. Calibration may not be accurate.");
-        return;
+        // return;
     }
     ui->checkBox_CamSyncDmd->setEnabled(false);   // 关闭同步开关，避免标定过程中关闭相机触发
     ui->pushButton_Calibrate->setEnabled(false);  // 禁用标定按钮，避免重复点击
     ui->pushButton_UpdateFreq->setEnabled(false); // 禁用更新频率按钮，避免标定过程中修改频率
     // 线程开始
-    m_calibComputeCtrl.setSavePath("calibration_frames"); // 设置标定帧的保存路径
+    m_calibComputeCtrl.setSavePath("./calibration_frames"); // 设置标定帧的保存路径
     m_calibComputeCtrl.setIntTime(ui->doubleSpinBox_CamExposeTime->value());
+    QMetaObject::invokeMethod(&m_calibComputeCtrl, "startRun", Qt::QueuedConnection);
     m_dlpc3500.stopProject();
-    m_calibComputeThread->start();
     m_dlpc3500.setRepeatMode(false);
     unsigned char freqIndex = static_cast<unsigned char>(ui->spinBox_DmdIndex->value()); // Placeholder index
     m_dlpc3500.updateFrequency(freqIndex);
@@ -331,73 +358,78 @@ void MainWindow::on_spinBox_DmdExposeTime_editingFinished()
 void MainWindow::on_pushButton_Measure_clicked()
 {
     // Placeholder for measurement functionality
-    ui->statusbar->showMessage("Measurement started.");
-    // 测量时，dmd进行投影，相机进行拍摄，获取图像并进行处理以完成测量
-    if (!m_camThread || !m_measureComputeThread)
+    if (ui->pushButton_Measure->text() == "Measure")
     {
-        ui->statusbar->showMessage("Camera or Measurement thread not running.");
-        return;
-    }
-    if (ui->checkBox_CamSyncDmd->isChecked())
-    {
-        ui->statusbar->showMessage("Camera-DMD sync is enabled. Starting measurement...");
+        ui->statusbar->showMessage("Measurement started.");
+        // 测量时，dmd进行投影，相机进行拍摄，获取图像并进行处理以完成测量
+        if (!m_camConnected || !m_measureComputeThread)
+        {
+            ui->statusbar->showMessage("Camera or Measurement thread not running.");
+            return;
+        }
+        if (ui->checkBox_CamSyncDmd->isChecked())
+        {
+            ui->statusbar->showMessage("Camera-DMD sync is enabled. Starting measurement...");
+        }
+        else
+        {
+            ui->statusbar->showMessage("Camera-DMD sync is disabled. Measurement may not be accurate.");
+            return;
+        }
+        ui->checkBox_CamSyncDmd->setEnabled(false);      // 关闭同步开关，避免测量过程中关闭相机触发
+        ui->checkBox_continueMeasure->setEnabled(false); // 关闭连续测量选项，避免测量过程中修改测量模式
+        ui->pushButton_Calibrate->setEnabled(false);     // 禁用标定按钮，避免重复点击
+        ui->pushButton_Measure->setEnabled(false);       // 禁用测量按钮，避免重复点击
+        ui->pushButton_UpdateFreq->setEnabled(false);
+        // 线程开始
+        m_measureComputeCtrl.setSavePath("./measurement_frames");                                       // 设置测量帧的保存路径
+        m_measureComputeCtrl.setCalibrationM(m_calibComputeCtrl.getMdc(), m_calibComputeCtrl.getMac()); // 将标定结果传递给测量控制器
+        m_measureComputeCtrl.setIntTime(ui->doubleSpinBox_CamExposeTime->value());
+        m_measureComputeCtrl.setCalibrationReflect(SFDI::Reflect(0.5, 0.5)); // 将标定得到的反射率图传递给测量控制器
+        m_dlpc3500.stopProject();
+        m_dlpc3500.setRepeatMode(ui->checkBox_continueMeasure->isChecked()); // 连续测量
+        QMetaObject::invokeMethod(&m_measureComputeCtrl, "startRun", Qt::QueuedConnection);
+
+        unsigned char freqIndex = static_cast<unsigned char>(ui->spinBox_DmdIndex->value()); // Placeholder index
+        m_dlpc3500.updateFrequency(freqIndex);
+        ui->pushButton_Measure->setText("Stop Measure");
     }
     else
     {
-        ui->statusbar->showMessage("Camera-DMD sync is disabled. Measurement may not be accurate.");
-        return;
+        ui->statusbar->showMessage("Measurement stopping...");
+        m_dlpc3500.stopProject();
+        QMetaObject::invokeMethod(&m_measureComputeCtrl, "stopRun", Qt::QueuedConnection);
+        ui->checkBox_CamSyncDmd->setEnabled(true);
+        ui->pushButton_UpdateFreq->setEnabled(true); // 启用更新频率按钮
+        ui->pushButton_Calibrate->setEnabled(true);  // 重新启用标定按钮
+        ui->pushButton_Measure->setEnabled(true);    // 重新启用测量按钮
+        ui->checkBox_continueMeasure->setEnabled(true);
+        m_dlpc3500.setRepeatMode(true);
+        ui->pushButton_Measure->setText("Measure");
     }
-    ui->checkBox_CamSyncDmd->setEnabled(false);  // 关闭同步开关，避免测量过程中关闭相机触发
-    ui->pushButton_Calibrate->setEnabled(false); // 禁用标定按钮，避免重复点击
-    ui->pushButton_Measure->setEnabled(false);   // 禁用测量按钮，避免重复点击
-    ui->pushButton_UpdateFreq->setEnabled(false);
-    // 线程开始
-    m_measureComputeCtrl.setSavePath("measurement_frames");                                         // 设置测量帧的保存路径
-    m_measureComputeCtrl.setCalibrationM(m_calibComputeCtrl.getMdc(), m_calibComputeCtrl.getMac()); // 将标定结果传递给测量控制器
-    m_measureComputeCtrl.setIntTime(ui->doubleSpinBox_CamExposeTime->value());
-    m_measureComputeCtrl.setCalibrationReflect(SFDI::Reflect(0.5, 0.5)); // 将标定得到的反射率图传递给测量控制器
-    m_dlpc3500.stopProject();
-    m_measureComputeThread->start();
-    m_dlpc3500.setRepeatMode(false);                                                     // 只测量一次
-    unsigned char freqIndex = static_cast<unsigned char>(ui->spinBox_DmdIndex->value()); // Placeholder index
-    m_dlpc3500.updateFrequency(freqIndex);
+    ui->pushButton_Measure->setEnabled(true);
 }
-void MainWindow::updateMeasureMap(const Eigen::Array<uint8_t, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &mua_8bit,
-                                    const Eigen::Array<uint8_t, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &musp_8bit)
+void MainWindow::updateMeasureMap(MeasureImagePtr mua_8bit,
+                                  MeasureImagePtr musp_8bit)
 {
-    // 将计算结果转换为QImage并显示
-    // 检查数组是否为空
-    if (mua_8bit.size() == 0 || musp_8bit.size() == 0)
+    if (!mua_8bit || !musp_8bit)
     {
         ui->statusbar->showMessage("Empty computation result received.");
         return;
     }
 
-    // 获取数组尺寸
-    const int muaRows = static_cast<int>(mua_8bit.rows());
-    const int muaCols = static_cast<int>(mua_8bit.cols());
-    const int muspRows = static_cast<int>(musp_8bit.rows());
-    const int muspCols = static_cast<int>(musp_8bit.cols());
+    static const auto infernoLUT = Colormap::createInfernoLUT();
+
+    const int muaRows = static_cast<int>(mua_8bit->rows());
+    const int muaCols = static_cast<int>(mua_8bit->cols());
+    const int muspRows = static_cast<int>(musp_8bit->rows());
+    const int muspCols = static_cast<int>(musp_8bit->cols());
     bool sizeChanged = (m_sceneData[MuaScene].img.width() != muaCols) || (m_sceneData[MuaScene].img.height() != muaRows);
-    // 处理并显示 mua 图像
+
     if (muaRows > 0 && muaCols > 0)
     {
-        // 创建或重用 QImage
-        if (sizeChanged || m_sceneData[MuaScene].img.format() != QImage::Format_Grayscale8)
-        {
-            m_sceneData[MuaScene].img = QImage(muaCols, muaRows, QImage::Format_Grayscale8);
-        }
-        std::memcpy(m_sceneData[MuaScene].img.bits(), mua_8bit.data(), muaRows * muaCols * sizeof(uint8_t));
-        // 更新 pixmap
-        if (sizeChanged)
-        {
-            m_sceneData[MuaScene].pixmap = QPixmap::fromImage(m_sceneData[MuaScene].img);
-        }
-        else
-        {
-            m_sceneData[MuaScene].pixmap.convertFromImage(m_sceneData[MuaScene].img);
-        }
-        // 更新 pixmapItem
+        m_sceneData[MuaScene].img = Colormap::applyColormap(*mua_8bit, infernoLUT);
+        m_sceneData[MuaScene].pixmap = QPixmap::fromImage(m_sceneData[MuaScene].img);
         m_sceneData[MuaScene].pixmapItem->setPixmap(m_sceneData[MuaScene].pixmap);
         if (sizeChanged)
         {
@@ -405,27 +437,11 @@ void MainWindow::updateMeasureMap(const Eigen::Array<uint8_t, Eigen::Dynamic, Ei
         }
     }
 
-    // 处理并显示 musp 图像
     if (muspRows > 0 && muspCols > 0)
     {
-        // 创建或重用 QImage
-        if (sizeChanged || m_sceneData[MuspScene].img.format() != QImage::Format_Grayscale8)
-        {
-            m_sceneData[MuspScene].img = QImage(muspCols, muspRows, QImage::Format_Grayscale8);
-        }
-        std::memcpy(m_sceneData[MuspScene].img.bits(), musp_8bit.data(), muspRows * muspCols * sizeof(uint8_t));
-        // 更新 pixmap
-        if (sizeChanged)
-        {
-            m_sceneData[MuspScene].pixmap = QPixmap::fromImage(m_sceneData[MuspScene].img);
-        }
-        else
-        {
-            m_sceneData[MuspScene].pixmap.convertFromImage(m_sceneData[MuspScene].img);
-        }
-        // 更新 pixmapItem
+        m_sceneData[MuspScene].img = Colormap::applyColormap(*musp_8bit, infernoLUT);
+        m_sceneData[MuspScene].pixmap = QPixmap::fromImage(m_sceneData[MuspScene].img);
         m_sceneData[MuspScene].pixmapItem->setPixmap(m_sceneData[MuspScene].pixmap);
-        // 更新Scene视图
         if (sizeChanged)
         {
             ui->graphicsView_musp->fitInView(m_sceneData[MuspScene].pixmapItem->boundingRect(), Qt::KeepAspectRatio);
@@ -439,23 +455,9 @@ void MainWindow::updateMeasureMap(const Eigen::Array<uint8_t, Eigen::Dynamic, Ei
                                    .arg(muspRows));
 }
 
-void MainWindow::onCamThreadStarted()
-{
-    m_camControl.connectCamera(ui->comboxBox_CamSelector->currentIndex());
-    setIsCamConnected(true);
-}
-
-void MainWindow::onCamThreadFinished()
-{
-    m_camControl.disconnectCamera(ui->comboxBox_CamSelector->currentIndex());
-    setIsCamConnected(false);
-}
-
 void MainWindow::onCalibrateComplete()
 {
-    m_dlpc3500.stopProject();
     ui->statusbar->showMessage("Calibration complete.");
-    m_calibComputeThread->quit();
     ui->checkBox_CamSyncDmd->setEnabled(true);   // 启用相机-DMD同步选项
     ui->pushButton_UpdateFreq->setEnabled(true); // 启用更新频率按钮
     ui->pushButton_Calibrate->setEnabled(true);  // 重新启用标定按钮
@@ -463,14 +465,19 @@ void MainWindow::onCalibrateComplete()
     m_dlpc3500.setRepeatMode(true);
 }
 
-void MainWindow::onMeasureComplete()
+void MainWindow::onSingleMeasureComplete()
 {
-    m_dlpc3500.stopProject();
+    // 只有单一测量模式下才会调用这个函数，连续测量模式下每次测量完成后都会调用updateMeasureMap来更新图像显示，而不是调用这个函数
+    if (ui->checkBox_continueMeasure->isChecked())
+    {
+        return;
+    }
     ui->statusbar->showMessage("Measurement complete.");
-    m_measureComputeThread->quit();
     ui->checkBox_CamSyncDmd->setEnabled(true);
     ui->pushButton_UpdateFreq->setEnabled(true); // 启用更新频率按钮
     ui->pushButton_Calibrate->setEnabled(true);  // 重新启用标定按钮
     ui->pushButton_Measure->setEnabled(true);    // 重新启用测量按钮
+    ui->checkBox_continueMeasure->setEnabled(true);
+    QMetaObject::invokeMethod(&m_measureComputeCtrl, "stopRun", Qt::QueuedConnection);
     m_dlpc3500.setRepeatMode(true);
 }

@@ -307,10 +307,20 @@
          <item>
           <widget class="QPushButton" name="pushButton_Calibrate">
            <property name="enabled">
-            <bool>false</bool>
+            <bool>true</bool>
            </property>
            <property name="text">
             <string>Calibrate</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QCheckBox" name="checkBox_continueMeasure">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
+           <property name="text">
+            <string>Continues</string>
            </property>
           </widget>
          </item>

@@ -13,7 +13,6 @@ namespace SFDI
     constexpr int TIME_BIN = 200,
                   RHO_BIN = 200,
                   FREQ_NUM = 2;
-    using Tiff_img = Eigen::Tensor<double, 3, Eigen::RowMajor>;
     using Freq = Eigen::Array2d;                                          // 固定长度一维向量
     using Reflect = Eigen::Array<double, 1, FREQ_NUM>;               // 固定大小一维数组
     using MC_data = Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic>; // 固定大小二维数组(T,R)读取蒙特卡罗模拟结果
@@ -28,12 +27,12 @@ namespace SFDI
                                            const Eigen::ArrayXXd &inputp240,
                                            const double int_time,
                                            Eigen::ArrayXXd &out);
-    extern Tiff_img open_tiff(const std::string &filename);
+    extern Eigen::ArrayXXd open_tiff(const std::string &filename);
     extern bool save_tiff(const std::string &filename, const Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> &data);
     class mc_model
     {
     private:
-        double n, delta_t_div_fresnel, v;
+        double n=0, delta_t_div_fresnel, v;
         Freq frequency;
         Eigen::ArrayXXd Jterm;               //(F,R)
         Eigen::ArrayXd v_t, twopi_rho_drho; //(T,1) (R,1)

@@ -1,15 +1,75 @@
 #include "CamControl.hpp"
 #include <iostream>
 #include <utility>
+#include <thread>
+#include <cstring>
+
 namespace Hardware
 {
+    void FrameQueue::push(IMV_HANDLE cameraHandle, IMV_Frame &&frame)
+    {
+        QMutexLocker locker(&m_mutex);
+        if (m_queue.size() >= MAX_QUEUE_SIZE)
+        {
+            if (cameraHandle && m_queue.front().pData)
+            {
+                IMV_ReleaseFrame(cameraHandle, &m_queue.front());
+            }
+            m_queue.pop_front();
+        }
+        m_queue.push_back(std::move(frame));
+        m_cond.wakeOne();
+    }
+
+    bool FrameQueue::pop(IMV_Frame &frame, int timeoutMs)
+    {
+        QMutexLocker locker(&m_mutex);
+        while (m_queue.empty())
+        {
+            if (!m_cond.wait(&m_mutex, timeoutMs))
+            {
+                return false;
+            }
+        }
+        frame = std::move(m_queue.front());
+        m_queue.pop_front();
+        return true;
+    }
+
+    void FrameQueue::clear(IMV_HANDLE cameraHandle)
+    {
+        QMutexLocker locker(&m_mutex);
+        if (cameraHandle)
+        {
+            for (auto &frame : m_queue)
+            {
+                if (frame.pData)
+                {
+                    IMV_ReleaseFrame(cameraHandle, &frame);
+                }
+            }
+        }
+        m_queue.clear();
+    }
+
+    int FrameQueue::size() const
+    {
+        QMutexLocker locker(&m_mutex);
+        return static_cast<int>(m_queue.size());
+    }
+
     CamControl::CamControl()
     {
-        // 初始化成员变量
     }
+
     CamControl::~CamControl()
     {
-        // 关闭相机并释放资源
+        m_running.storeRelease(0);
+        if (m_dispatchThread && m_dispatchThread->joinable())
+        {
+            m_dispatchThread->join();
+        }
+        m_frameQueue.clear(m_cameraHandle);
         if (m_cameraHandle)
         {
             IMV_Close(m_cameraHandle);
@@ -17,11 +77,105 @@ namespace Hardware
             m_cameraHandle = nullptr;
         }
     }
+
     const IMV_DeviceList &CamControl::scanCameras()
     {
         IMV_EnumDevices(&m_deviceList, interfaceTypeUsb3);
         return m_deviceList;
     }
+
+    void CamControl::scanCamerasRequest()
+    {
+        QStringList cameraLabels;
+        QString status;
+        const IMV_DeviceList &deviceList = scanCameras();
+        const int cameraCount = static_cast<int>(deviceList.nDevNum);
+
+        if (cameraCount == 0)
+        {
+            status = "No cameras found.";
+        }
+        else
+        {
+            for (unsigned int i = 0; i < deviceList.nDevNum; ++i)
+            {
+                const IMV_DeviceInfo &devInfo = deviceList.pDevInfo[i];
+                cameraLabels.push_back(QString("Camera %1: %2")
+                                           .arg(i)
+                                           .arg(QString::fromStdString(devInfo.modelName)));
+            }
+            status = QString("Found %1 camera(s).").arg(cameraCount);
+        }
+
+        emit scanCompleted(cameraLabels, status);
+    }
+
+    void CamControl::connectCameraRequest(int index)
+    {
+        bool success = false;
+        QString status;
+
+        try
+        {
+            success = connectCamera(index);
+            status = success ? "Camera connected." : "Failed to connect camera.";
+        }
+        catch (const std::exception &e)
+        {
+            success = false;
+            status = QString("Failed to connect camera: %1").arg(e.what());
+        }
+
+        emit connectionCompleted(success, status);
+
+        if (success)
+        {
+            try
+            {
+                double maxValue = 0.0;
+                double minValue = 0.0;
+                std::tie(maxValue, minValue) = getCameraDoubleParametersMaxAndMin("ExposureTime");
+                emit exposureRangeReady(true, minValue, maxValue, "Exposure range loaded.");
+            }
+            catch (const std::exception &e)
+            {
+                emit exposureRangeReady(false, 0.0, 0.0, QString("Failed to query exposure range: %1").arg(e.what()));
+            }
+        }
+    }
+
+    void CamControl::disconnectCameraRequest(int index)
+    {
+        const bool success = disconnectCamera(index);
+        emit disconnectionCompleted(success, success ? "Camera disconnected." : "Failed to disconnect camera.");
+    }
+
+    void CamControl::setCameraExposureTimeRequest(double exposureTime)
+    {
+        try
+        {
+            setCameraDoubleParameters("ExposureTime", exposureTime);
+            emit parameterSetCompleted(true, QString("Exposure time set to %1 us.").arg(exposureTime));
+        }
+        catch (const std::exception &e)
+        {
+            emit parameterSetCompleted(false, QString("Error setting exposure time: %1").arg(e.what()));
+        }
+    }
+
+    void CamControl::setCameraTriggerModeRequest(bool enableExternalTrigger)
+    {
+        try
+        {
+            setCameraTriggerMode(enableExternalTrigger);
+            emit parameterSetCompleted(true, QString("Camera trigger mode set to %1.").arg(enableExternalTrigger ? "External Trigger" : "Free Run"));
+        }
+        catch (const std::exception &e)
+        {
+            emit parameterSetCompleted(false, QString("Error setting camera trigger mode: %1").arg(e.what()));
+        }
+    }
+
     bool CamControl::connectCamera(int index)
     {
         if (index < 0 || index >= static_cast<int>(m_deviceList.nDevNum))
@@ -29,14 +183,12 @@ namespace Hardware
             std::cerr << "Invalid camera index: " << index << std::endl;
             return false;
         }
-        // 创建相机句柄
         int ret = IMV_CreateHandle(&m_cameraHandle, modeByIndex, reinterpret_cast<void *>(&index));
         if (ret != IMV_OK)
         {
             std::cerr << "Failed to create camera handle. Error code: " << ret << std::endl;
             return false;
         }
-        // 打开相机
         if (IMV_IsOpen(m_cameraHandle))
         {
             std::cout << "Camera is already open." << std::endl;
@@ -65,7 +217,6 @@ namespace Hardware
                 IMV_SetEnumFeatureValue(m_cameraHandle, "PixelFormat", gvspPixelMono12);
             }
         }
-        // 设置触发模式为Line2
         ret = IMV_SetEnumFeatureSymbol(m_cameraHandle, "TriggerSource", "Line2");
         if (ret != IMV_OK)
         {
@@ -88,7 +239,7 @@ namespace Hardware
         if (IMV_OK != ret)
         {
             std::cout << "Set triggerActivation value failed! ErrorCode[" << ret << "]" << std::endl;
-            return ret;
+            return false;
         }
         ret = IMV_AttachGrabbing(m_cameraHandle, callbackFrameReceived, this);
         if (ret != IMV_OK)
@@ -102,34 +253,98 @@ namespace Hardware
             CamControl::throwError("Failed to start grabbing.", ret);
             return false;
         }
+
+        m_running.storeRelease(1);
+        m_dispatchThread = std::make_unique<std::thread>(&CamControl::dispatchThread, this);
+
         std::cout << "Camera connected successfully." << std::endl;
         return true;
     }
+
     bool CamControl::disconnectCamera(int index)
     {
+        m_running.storeRelease(0);
+        if (m_dispatchThread && m_dispatchThread->joinable())
+        {
+            m_dispatchThread->join();
+        }
+        m_frameQueue.clear(m_cameraHandle);
         safeReleaseCamera();
         std::cout << "Camera disconnected successfully." << std::endl;
         return true;
     }
+
     void CamControl::callbackFrameReceived(IMV_Frame *pFrame, void *pUser)
     {
-        // 处理接收到的帧数据
         CamControl *camControl = reinterpret_cast<CamControl *>(pUser);
         if (camControl)
         {
             camControl->processFrame(pFrame);
         }
     }
+
     void CamControl::processFrame(IMV_Frame *pFrame)
-    {    
-        IMV_FrameInfo &frameInfo = pFrame->frameInfo;
-        m_currentFrameArray.resize(frameInfo.height, frameInfo.width);
-        std::memcpy(m_currentFrameArray.data(), pFrame->pData, frameInfo.size);
-        emit frameReceived(m_currentFrameArray); // pass by const reference   
+    {
+        IMV_Frame clonedFrame{};
+
+        const int ret = IMV_CloneFrame(m_cameraHandle, pFrame, &clonedFrame);
+        if (ret != IMV_OK)
+        {
+            std::cerr << "Failed to clone frame. Error code: " << ret << std::endl;
+            return;
+        }
+
+        m_frameQueue.push(m_cameraHandle, std::move(clonedFrame));
     }
+
+    void CamControl::dispatchThread()
+    {
+        while (m_running.loadAcquire())
+        {
+            dequeueAndDispatchFrame(50);
+        }
+    }
+
+    bool CamControl::dequeueAndDispatchFrame(int timeoutMs)
+    {
+        IMV_Frame frame{};
+        if (!m_frameQueue.pop(frame, timeoutMs))
+        {
+            return false;
+        }
+
+        const IMV_FrameInfo &frameInfo = frame.frameInfo;
+        if (!frame.pData || frameInfo.size == 0)
+        {
+            if (m_cameraHandle && frame.pData)
+            {
+                IMV_ReleaseFrame(m_cameraHandle, &frame);
+            }
+            return true;
+        }
+
+        auto ownedData = std::make_unique<uint8_t[]>(frameInfo.size);
+        std::shared_ptr<uint8_t> copiedData(ownedData.release(), std::default_delete<uint8_t[]>());
+        std::memcpy(copiedData.get(), frame.pData, frameInfo.size);
+
+        emit frameReceivedForUI(copiedData,
+                                static_cast<int>(frameInfo.width),
+                                static_cast<int>(frameInfo.height),
+                              static_cast<int>(frameInfo.size));
+        emit frameReceivedForCompute(copiedData,
+                                     static_cast<int>(frameInfo.width),
+                                     static_cast<int>(frameInfo.height),
+                                  static_cast<int>(frameInfo.size));
+
+        if (m_cameraHandle)
+        {
+            IMV_ReleaseFrame(m_cameraHandle, &frame);
+        }
+        return true;
+    }
+
     void CamControl::setupCameraParameters(const IMV_Frame &firstFrame)
     {
-        // Implementation for setting up camera parameters based on the first frame
         unsigned int width = firstFrame.frameInfo.width;
         unsigned int height = firstFrame.frameInfo.height;
     }
@@ -160,7 +375,6 @@ namespace Hardware
     }
     void CamControl::setCameraDoubleParameters(const char *pFeatureName, double value)
     {
-        // Implementation for setting double parameters
         if (!m_cameraHandle)
         {
             throw std::runtime_error("Camera is not connected.");
@@ -184,9 +398,9 @@ namespace Hardware
             throw std::runtime_error("Failed to set feature value for: " + std::string(pFeatureName));
         }
     }
+
     void CamControl::setCameraIntParameters(const char *pFeatureName, int64_t value)
     {
-        // Implementation for setting int parameters
         if (!m_cameraHandle)
         {
             throw std::runtime_error("Camera is not connected.");
@@ -210,9 +424,9 @@ namespace Hardware
             throw std::runtime_error("Failed to set feature value for: " + std::string(pFeatureName));
         }
     }
+
     void CamControl::setCameraEnumParameters(const char *pFeatureName, uint64_t value)
     {
-        // Implementation for setting enum parameters
         if (!m_cameraHandle)
         {
             throw std::runtime_error("Camera is not connected.");
@@ -233,6 +447,7 @@ namespace Hardware
             throw std::runtime_error("Failed to set enum feature value for: " + std::string(pFeatureName));
         }
     }
+
     std::pair<double, double> CamControl::getCameraDoubleParametersMaxAndMin(const char *pFeatureName)
     {
         if (!m_cameraHandle)
@@ -253,6 +468,7 @@ namespace Hardware
         }
         return std::make_pair(maxVal, minVal);
     }
+
     std::pair<int64_t, int64_t> CamControl::getCameraIntParametersMaxAndMin(const char *pFeatureName)
     {
         if (!m_cameraHandle)
@@ -273,6 +489,7 @@ namespace Hardware
         }
         return std::make_pair(maxVal, minVal);
     }
+
     void CamControl::setCameraTriggerMode(bool enableExternalTrigger)
     {
         if (!m_cameraHandle)
@@ -282,8 +499,7 @@ namespace Hardware
         int ret = IMV_SetEnumFeatureSymbol(m_cameraHandle, "TriggerMode", enableExternalTrigger ? "On" : "Off");
         if (IMV_OK != ret)
         {
-            std::cout << "Set triggerMode value failed! ErrorCode[" << ret << "]" << std::endl;
-            return;
+            throw std::runtime_error("Failed to set trigger mode.");
         }
     }
 };

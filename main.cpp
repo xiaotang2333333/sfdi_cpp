@@ -8,60 +8,66 @@
 #include <iostream>
 #include "MainWindow.hpp"
 #include <QApplication>
-#define GENERATE_LOOKUP
+
 int main(int argc, char *argv[])
 {
     // 初始化模型
-//     std::cout << "Loading model and building lookup table..." << std::endl;
-//     SFDI::mc_model model_comp;
-// #ifdef GENERATE_LOOKUP
-//     SFDI::GridInverseSolver grid_solver(101, 101);
+    //     std::cout << "Loading model and building lookup table..." << std::endl;
+    //     SFDI::mc_model model_comp;
+    #ifdef GENERATE_LOOKUP
+        SFDI::GridInverseSolver grid_solver(1001, 1001);
 
-//     grid_solver.solve_and_save("test.bin");
-//#endif
+        grid_solver.solve_and_save("test.bin");
+    #endif
     // double mua,musp;
     // SFDI::mc_model model_mc;
     // while (std::cin>>mua>>musp)
     // {
 
-    // SFDI::Reflect_wave_freq ans1,ans2,ans3;
-    // model_mc.mc_model_for_SFDI_Dmua(SFDI::Optical_prop().setConstant(mua),SFDI::Optical_prop().setConstant(musp),ans1);
-    // model_mc.mc_model_for_SFDI_Dmusp(SFDI::Optical_prop().setConstant(mua),SFDI::Optical_prop().setConstant(musp),ans2);
-    // model_mc.mc_model_for_SFDI_Dmua(SFDI::Optical_prop().setConstant(mua),SFDI::Optical_prop().setConstant(musp),ans3);
+    // SFDI::Reflect ans1,ans2,ans3;
+    // model_mc.mc_model_for_SFDI(mua,musp,ans1);
+    // model_mc.mc_model_for_SFDI_Dmusp(mua,musp,ans2);
+    // model_mc.mc_model_for_SFDI_Dmua(mua,musp,ans3);
     // std::cout<<ans1<<std::endl<<ans2<<std::endl<<ans3<<std::endl;
     // }
 #ifdef INVERSE_TEST
     // 1. 初始化查找表
-    SFDI::SFDI_Lookup lookup(101, "grid_forward_1.bin");
+    SFDI::SFDI_Lookup lookup(101, "test.bin");
     // 2. 计算校准后的反射率
     std::cout << "Computing calibrated reflectance..." << std::endl;
-    model_comp.LoadAndComputeAC("sample_670", output_AC);
-    model_comp.R_compute(output_AC, calibrated_reflectance);
+    SFDI::mc_model model_comp;
+    std::array<Eigen::ArrayXXd, 6> mea_pic, cal_pic;
+    for (int i = 0; i < 6; ++i)
+    {
+        mea_pic[i] = SFDI::open_tiff("003/frame_" + std::to_string(i) + ".tiff");
+        cal_pic[i] = SFDI::open_tiff("calibration_frames/frame_" + std::to_string(i) + ".tiff");
+    }
 
+    Eigen::ArrayXXd cal_mac, cal_mdc, meas_mac, meas_mdc;
+    double eps = 1e-8;
+    SFDI::Reflect calibrated;
+    model_comp.setN(1.4);
+    model_comp.mc_model_for_SFDI(0.0059, 0.9748, calibrated);
+    std::cout << calibrated << std::endl;
+    SFDI::Compute_Amplitude_Envelope(mea_pic[0], mea_pic[1], mea_pic[2], 1.0, meas_mdc);
+    SFDI::Compute_Amplitude_Envelope(mea_pic[3], mea_pic[4], mea_pic[5], 1.0, meas_mac);
+    SFDI::Compute_Amplitude_Envelope(cal_pic[0], cal_pic[1], cal_pic[2], 1.0, cal_mdc);
+    SFDI::Compute_Amplitude_Envelope(cal_pic[3], cal_pic[4], cal_pic[5], 1.0, cal_mac);
+    Eigen::ArrayXXd Rac = meas_mac * 0.5 / (cal_mac + eps), Rdc = meas_mdc * 0.5 / (cal_mdc + eps);
     auto start_time = std::chrono::high_resolution_clock::now();
     std::cout << "Starting lookup for all pixels..." << std::endl;
-    std::ofstream cal("cal.bin", std::ios::binary);
-    if (!cal)
-        std::cerr << "Failed to open cal file for writing!" << std::endl;
-    cal.write(reinterpret_cast<const char *>(calibrated_reflectance.data()),
-              sizeof(double) * calibrated_reflectance.size());
+    Eigen::ArrayXXd mua_map(Rac.rows(), Rac.cols()), musp_map(Rac.rows(), Rac.cols());
 // 3. 对每个像素点查找 (mua, musp)
 #pragma omp parallel for collapse(2)
-    for (int h = 0; h < SFDI::IMG_HEIGHT; h++)
+    for (int h = 0; h < Rac.rows(); h++)
     {
-        for (int w = 0; w < SFDI::IMG_WIDTH; w++)
+        for (int w = 0; w < Rac.cols(); w++)
         {
             // 获取该像素的测量反射率
-            SFDI::Reflect_wave_freq measured = SFDI::AC2Model(calibrated_reflectance, h, w);
+            SFDI::Reflect measured = {Rdc(h, w), Rac(h, w)};
             // 查找最近的 (mua, musp)
-            SFDI::Optical_prop mua_pixel, musp_pixel;
-            lookup.query(measured, mua_pixel, musp_pixel);
+            lookup.query(measured, mua_map(h, w), musp_map(h, w));
             // 将结果按波长通道写回到映射
-            for (int c = 0; c < SFDI::WAVELENGTH_NUM; ++c)
-            {
-                mua_map(h, w, c) = mua_pixel(c);
-                musp_map(h, w, c) = musp_pixel(c);
-            }
         }
     }
 
@@ -70,29 +76,20 @@ int main(int argc, char *argv[])
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     std::cout << "Lookup completed in " << duration.count() << " ms" << std::endl;
 
-    // 5. 保存 mua 到二进制文件
-    std::ofstream mua_file("sfdi_mua.bin", std::ios::binary);
-    if (!mua_file)
+    // 5. 保存 mua 到tiff
+    if (!SFDI::save_tiff("003/mua.tiff", mua_map))
     {
-        std::cerr << "Failed to open mua file for writing!" << std::endl;
+        std::cerr << "Failed to save mua to TIFF!" << std::endl;
         return 1;
     }
-    mua_file.write(reinterpret_cast<const char *>(mua_map.data()),
-                   sizeof(double) * mua_map.size());
-    mua_file.close();
-    std::cout << "mua saved to sfdi_mua.bin" << std::endl;
 
-    // 6. 保存 musp 到二进制文件
-    std::ofstream musp_file("sfdi_musp.bin", std::ios::binary);
-    if (!musp_file)
+    // 6. 保存 musp 到tiff
+    if (!SFDI::save_tiff("003/musp.tiff", musp_map))
     {
-        std::cerr << "Failed to open musp file for writing!" << std::endl;
+        std::cerr << "Failed to save musp to TIFF!" << std::endl;
         return 1;
     }
-    musp_file.write(reinterpret_cast<const char *>(musp_map.data()),
-                    sizeof(double) * musp_map.size());
-    musp_file.close();
-    std::cout << "musp saved to sfdi_musp.bin" << std::endl;
+    std::cout << "musp saved to sfdi_musp.tif" << std::endl;
 
     std::cout << "All done!" << std::endl;
 #endif
