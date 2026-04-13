@@ -199,8 +199,12 @@ void MainWindow::onCameraDisconnectionCompleted(bool success, const QString &sta
 
 void MainWindow::onCameraExposureRangeReady(bool success, double minValue, double maxValue, const QString &status)
 {
-    if (success && m_camConnected)
+    if (success)
     {
+        if (minValue > maxValue)
+        {
+            std::swap(minValue, maxValue);
+        }
         ui->doubleSpinBox_CamExposeTime->setMinimum(minValue);
         ui->doubleSpinBox_CamExposeTime->setMaximum(maxValue);
     }

@@ -132,10 +132,14 @@ namespace Hardware
         {
             try
             {
-                double maxValue = 0.0;
-                double minValue = 0.0;
-                std::tie(maxValue, minValue) = getCameraDoubleParametersMaxAndMin("ExposureTime");
-                emit exposureRangeReady(true, minValue, maxValue, "Exposure range loaded.");
+                const auto [maxValue, minValue] = getCameraDoubleParametersMaxAndMin("ExposureTime");
+                double safeMin = minValue;
+                double safeMax = maxValue;
+                if (safeMin > safeMax)
+                {
+                    std::swap(safeMin, safeMax);
+                }
+                emit exposureRangeReady(true, safeMin, safeMax, "Exposure range loaded.");
             }
             catch (const std::exception &e)
             {
@@ -379,7 +383,8 @@ namespace Hardware
         {
             throw std::runtime_error("Camera is not connected.");
         }
-        double maxVal, minVal;
+        double maxVal = 0.0;
+        double minVal = 0.0;
         try
         {
             std::tie(maxVal, minVal) = getCameraDoubleParametersMaxAndMin(pFeatureName);
@@ -387,6 +392,10 @@ namespace Hardware
         catch (const std::exception &e)
         {
             std::cerr << e.what() << '\n';
+        }
+        if (minVal > maxVal)
+        {
+            std::swap(minVal, maxVal);
         }
         if (value < minVal || value > maxVal)
         {
@@ -405,7 +414,8 @@ namespace Hardware
         {
             throw std::runtime_error("Camera is not connected.");
         }
-        int64_t maxVal, minVal;
+        int64_t maxVal = 0;
+        int64_t minVal = 0;
         try
         {
             std::tie(maxVal, minVal) = getCameraIntParametersMaxAndMin(pFeatureName);
@@ -413,6 +423,10 @@ namespace Hardware
         catch (const std::exception &e)
         {
             std::cerr << e.what() << '\n';
+        }
+        if (minVal > maxVal)
+        {
+            std::swap(minVal, maxVal);
         }
         if (value < minVal || value > maxVal)
         {
