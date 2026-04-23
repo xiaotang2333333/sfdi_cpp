@@ -13,6 +13,13 @@
 
 namespace Hardware
 {
+    template <typename T>
+    struct FeatureRange
+    {
+        T maxValue{};
+        T minValue{};
+    };
+
     class FrameQueue
     {
     public:
@@ -74,8 +81,8 @@ namespace Hardware
         void setCameraDoubleParameters(const char *pFeatureName, double value);
         void setCameraIntParameters(const char *pFeatureName, int64_t value);
         void setCameraEnumParameters(const char *pFeatureName, uint64_t value);
-        std::pair<double, double> getCameraDoubleParametersMaxAndMin(const char *pFeatureName);
-        std::pair<int64_t, int64_t> getCameraIntParametersMaxAndMin(const char *pFeatureName);
+        FeatureRange<double> getCameraDoubleParametersMaxAndMin(const char *pFeatureName);
+        FeatureRange<int64_t> getCameraIntParametersMaxAndMin(const char *pFeatureName);
     };
 };
 

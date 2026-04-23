@@ -132,9 +132,9 @@ namespace Hardware
         {
             try
             {
-                const auto [maxValue, minValue] = getCameraDoubleParametersMaxAndMin("ExposureTime");
-                double safeMin = minValue;
-                double safeMax = maxValue;
+                const auto exposureRange = getCameraDoubleParametersMaxAndMin("ExposureTime");
+                double safeMin = exposureRange.minValue;
+                double safeMax = exposureRange.maxValue;
                 if (safeMin > safeMax)
                 {
                     std::swap(safeMin, safeMax);
@@ -387,7 +387,9 @@ namespace Hardware
         double minVal = 0.0;
         try
         {
-            std::tie(maxVal, minVal) = getCameraDoubleParametersMaxAndMin(pFeatureName);
+            const auto range = getCameraDoubleParametersMaxAndMin(pFeatureName);
+            maxVal = range.maxValue;
+            minVal = range.minValue;
         }
         catch (const std::exception &e)
         {
@@ -418,7 +420,9 @@ namespace Hardware
         int64_t minVal = 0;
         try
         {
-            std::tie(maxVal, minVal) = getCameraIntParametersMaxAndMin(pFeatureName);
+            const auto range = getCameraIntParametersMaxAndMin(pFeatureName);
+            maxVal = range.maxValue;
+            minVal = range.minValue;
         }
         catch (const std::exception &e)
         {
@@ -462,7 +466,7 @@ namespace Hardware
         }
     }
 
-    std::pair<double, double> CamControl::getCameraDoubleParametersMaxAndMin(const char *pFeatureName)
+    FeatureRange<double> CamControl::getCameraDoubleParametersMaxAndMin(const char *pFeatureName)
     {
         if (!m_cameraHandle)
         {
@@ -480,10 +484,10 @@ namespace Hardware
         {
             throw std::runtime_error("Failed to get min value for feature: " + std::string(pFeatureName));
         }
-        return std::make_pair(maxVal, minVal);
+        return FeatureRange<double>{maxVal, minVal};
     }
 
-    std::pair<int64_t, int64_t> CamControl::getCameraIntParametersMaxAndMin(const char *pFeatureName)
+    FeatureRange<int64_t> CamControl::getCameraIntParametersMaxAndMin(const char *pFeatureName)
     {
         if (!m_cameraHandle)
         {
@@ -501,7 +505,7 @@ namespace Hardware
         {
             throw std::runtime_error("Failed to get min value for feature: " + std::string(pFeatureName));
         }
-        return std::make_pair(maxVal, minVal);
+        return FeatureRange<int64_t>{maxVal, minVal};
     }
 
     void CamControl::setCameraTriggerMode(bool enableExternalTrigger)

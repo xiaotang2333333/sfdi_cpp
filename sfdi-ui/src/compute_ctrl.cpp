@@ -121,9 +121,9 @@ void MeasureComputeCtrl::frameGrabbed(std::shared_ptr<uint8_t> data, int width, 
             }
             // emit saveFrame(m_saveFolder + "/mua.tiff", std::make_shared<SaveImage>(m_mua));
             // emit saveFrame(m_saveFolder + "/musp.tiff", std::make_shared<SaveImage>(m_musp));
-            double mua_max = m_mua.maxCoeff();
+            constexpr double mua_max = 0.5;
             double musp_max = m_musp.maxCoeff();
-            m_mua_8bit = (m_mua / mua_max * 255.0).cast<uint8_t>();
+            m_mua_8bit = (m_mua.cwiseMin(mua_max) / mua_max * 255.0).cast<uint8_t>();
             m_musp_8bit = (m_musp / musp_max * 255.0).cast<uint8_t>();
             emit measureComplete(std::make_shared<MeasureImage>(m_mua_8bit),
                                  std::make_shared<MeasureImage>(m_musp_8bit));
